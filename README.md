@@ -3,6 +3,13 @@ It downloads some climatological data from Aemet OpenData (https://www.aemet.es/
 
 Requirements
 * pandas
+* jupyter lab
 * openpyxl (only if you want to save pandas dateframes as Excel files).
+
+Use
+
+Open the notebook (Spanish texts)
+
+
 
 
