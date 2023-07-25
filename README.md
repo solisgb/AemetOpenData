@@ -6,8 +6,7 @@ Requirements
 * jupyter lab
 * openpyxl (only if you want to save pandas dateframes as Excel files).
 
-Use
-
+How to use it
 Open the notebook (Spanish texts)
 
 
