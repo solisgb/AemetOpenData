@@ -5,12 +5,10 @@ Created on Sat Oct 26 10:15:17 2019
 @author: solis
 """
 try:
-    from datetime import date, timedelta
-    import json
+    from datetime import date, datetime, timedelta
     import pandas as pd
     import requests
     from time import time
-    import traceback
     
     import littleLogging as logging
 except ImportError as e:
@@ -19,6 +17,15 @@ except ImportError as e:
 
 
 class AemetOpenData():
+    """
+    Descarga datos climatológicos de Aemet OpenData
+    Interfaz pública:
+        daily_ranges_get
+        years_ranges_get
+        climatologias_estaciones
+        climatologias_diarias
+        climatologias_mensuales
+    """
 
     _RESPONSEOK = 200
     _UNAUTHORIZED = 401
@@ -32,14 +39,9 @@ class AemetOpenData():
     
     
     def __init__(self):
-        # Leo mi apikey
+        # Leo mi apikey desde fichero
         with open('apikey.txt') as f:
             self.myapikey = f.readline()
-        
-        # Leo urls
-        with open('urls.json', 'r') as f:
-            self.urls = json.load(f)
-        
         self.querystring = {"api_key": self.myapikey}
         self.headers = {'cache-control': "no-cache"}
 
@@ -120,15 +122,69 @@ class AemetOpenData():
         return years_range
 
 
-    def __request_variables_climatologicas(self, dr: [(str, str)], mtype: str) -> pd.DataFrame: 
+    def __request(self, url: str, metadata: bool=False):
+        """
+        Petición de datos única (serie no temporal)
+
+        Parameters
+        ----------
+        url : url
+        metadata: If True only metadata are downloaded, otherwse only data
+        are downloaded
+
+        Returns
+        -------
+        df : data, metadata or None
+        """
+
+        df = None
+        non_stop = True
+        while non_stop: 
+            response = requests.request("GET", url, 
+                                        headers=self.headers,
+                                        params=self.querystring,
+                                        timeout=(2, 5))
+
+            if response.status_code == AemetOpenData._RESPONSEOK:
+                content = response.json()
+                if metadata:
+                    field = 'metadatos'
+                else:
+                    field = 'datos'
+                if field in content:
+                    df = pd.read_json(content[field],
+                                      encoding='latin-1')
+                msg = f'{content["estado"]}, {content["descripcion"]}'
+                logging.append(msg) 
+                non_stop = False
+            elif response.status_code == AemetOpenData._TOOMANYREQUESTS:
+                time.sleep(AemetOpenData._SLEEPSECONDS)
+            elif response.status_code in (AemetOpenData._UNAUTHORIZED,
+                                          AemetOpenData._NOTFOUND):
+                content = response.json()
+                msg = f'{content["estado"]}, {content["descripcion"]}'
+                logging.append(msg) 
+                non_stop = False                        
+            else:
+                msg = f'status code {response.status_code}'
+                logging.append(msg)                                                                                
+                non_stop = False
+        return df
+
+
+    def __request_variables_climatologicas(self, dr: [(str, str)],
+                                           estaciones: (str), 
+                                           mtype: str, 
+                                           metadata: bool) -> pd.DataFrame: 
         """
         Hace la petición de datos a Aemet OpenData
         Parameters
         ----------
-        dr : [(str, str)]
-            DESCRIPTION.
-        mtype : str
-            DESCRIPTION.
+        dr : ver funciones de llamada (valid_mtypes)
+        estaciones: tupla de códigos de estaciones
+        mtype : nombre de la función de llamada (valid_mtypes)
+        metadata: If True only metadata are downloaded, otherwse only data
+        are downloaded
         """
         valid_mtypes = ('climatologias_diarias', 'climatologias_mensuales')
         if mtype not in valid_mtypes:
@@ -141,7 +197,7 @@ class AemetOpenData():
                 if mtype == 'climatologias_diarias':
                     url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/diarios/datos/fechaini/{dr1[0]}/fechafin/{dr1[1]}/estacion/{e1}'
                 else:
-                    url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/mensualesanuales/datos/anioini/{dr[0]}/aniofin/{dr[1]}/estacion/{e1}'
+                    url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/mensualesanuales/datos/anioini/{dr1[0]}/aniofin/{dr1[1]}/estacion/{e1}'
                     
                 non_stop = True
                 while non_stop: 
@@ -152,22 +208,32 @@ class AemetOpenData():
 
                     if response.status_code == AemetOpenData._RESPONSEOK:
                         content = response.json()
-                        if 'datos' in content:
-                            df = pd.read_json(content["datos"], encoding='latin-1')
-                            dfs.append(df) 
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
+                        if metadata:
+                            field = 'metadatos'
+                        else:
+                            field = 'datos'
+                        if field in content:
+                            df = pd.read_json(content[field],
+                                              encoding='latin-1')
+                            dfs.append(df)
+                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: '+\
+                            f'{content["estado"]}, {content["descripcion"]}'
                         logging.append(msg) 
                         non_stop = False
+                        if metadata and len(dfs)>0:
+                            return dfs[0]
                     elif response.status_code == AemetOpenData._TOOMANYREQUESTS:
                         time.sleep(AemetOpenData._SLEEPSECONDS)
                     elif response.status_code in (AemetOpenData._UNAUTHORIZED,
                                                   AemetOpenData._NOTFOUND):
                         content = response.json()
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
+                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: '+\
+                            f'{content["estado"]}, {content["descripcion"]}'
                         logging.append(msg) 
                         non_stop = False                        
                     else:
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: status code {response.status_code}'
+                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: '+\
+                            f'status code {response.status_code}'
                         logging.append(msg)                                                                                
                         non_stop = False
         if dfs:
@@ -176,7 +242,27 @@ class AemetOpenData():
             return dfs
 
 
-    def climatologias_diarias(self, d1: date, d2: date, estaciones:(str)):
+    def climatologias_estaciones(self, metadata: bool=False) -> pd.DataFrame:
+        """
+        Devuelve los datos de las estaciones con datos de variables
+        climatológicas en Aemet OpenData
+
+        Parameters
+        ----------
+        metadata: If True only metadata are downloaded, otherwse only data
+        are downloaded
+
+        Returns
+        -------
+        data, metadata or None
+        """
+        url = 'https://opendata.aemet.es/opendata/api/valores/climatologicos/inventarioestaciones/todasestaciones'
+        data = self.__request(url, metadata)       
+        return data
+
+
+    def climatologias_diarias(self, d1: date, d2: date, estaciones:(str),
+                                metadata: bool=False) -> pd.DataFrame:
         """
         Devuelve una dataframe con los datos climatológicos diarios de 
         una o varias estaciones en un rango de fechas
@@ -186,10 +272,12 @@ class AemetOpenData():
         d1 : fecha inicial
         d2 : fecha final
         estaciones : Lista de estaciones o una estación como str
+        metadata: If True only metadata are downloaded, otherwse only data
+        are downloaded
 
         Returns
         -------
-        dataframe con los datos
+        data, metadata or None
         """
 
         if isinstance(estaciones, str):
@@ -198,48 +286,15 @@ class AemetOpenData():
         dr = AemetOpenData.daily_ranges_get(d1, d2)
 
         mtype = 'climatologias_diarias'
-        data = self.__request_variables_climatologicas(dr, mtype)
+        data = self.__request_variables_climatologicas(dr, estaciones, mtype,
+                                                       metadata)
         return data
 
-        
-        # dfs = []
-        # for e1 in estaciones:
-        #     for dr1 in dr:
-        #         url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/diarios/datos/fechaini/{dr1[0]}/fechafin/{dr1[1]}/estacion/{e1}'
-        #         non_stop = True
-        #         while non_stop: 
-        #             response = requests.request("GET", url, 
-        #                                         headers=self.headers,
-        #                                         params=self.querystring,
-        #                                         timeout=(2, 5))
 
-        #             if response.status_code == AemetOpenData._RESPONSEOK:
-        #                 content = response.json()
-        #                 if 'datos' in content:
-        #                     df = pd.read_json(content["datos"], encoding='latin-1')
-        #                     dfs.append(df) 
-        #                 msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
-        #                 logging.append(msg) 
-        #                 non_stop = False
-        #             elif response.status_code == AemetOpenData._TOOMANYREQUESTS:
-        #                 time.sleep(AemetOpenData._SLEEPSECONDS)
-        #             elif response.status_code in (AemetOpenData._UNAUTHORIZED,
-        #                                           AemetOpenData._NOTFOUND):
-        #                 content = response.json()
-        #                 msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
-        #                 logging.append(msg) 
-        #                 non_stop = False                        
-        #             else:
-        #                 msg = f'{e1}, {dr1[0]}, {dr1[1]}: status code {response.status_code}'
-        #                 logging.append(msg)                                                                                
-        #                 non_stop = False
-        # if dfs:
-        #     return pd.concat(dfs, axis=0, ignore_index=True)
-        # else:
-        #     return dfs
-
-
-    def climatologias_mensuales(self, y1: int, y2: int, estaciones:(str)):
+    def climatologias_mensuales(self, y1: (int, date, datetime), 
+                                y2: (int, date, datetime), 
+                                estaciones:(str, [str]),
+                                metadata: bool=False) -> pd.DataFrame:
         """
         Devuelve una dataframe con los datos climatológicos mensuales de 
         una o varias estaciones en un rango de años
@@ -249,79 +304,26 @@ class AemetOpenData():
         y1 : año inicial
         y2 : año final
         estaciones : Lista de estaciones o una estación como str
-
+        metadata: If True only metadata are downloaded, otherwse only data
+        are downloaded
+        
         Returns
         -------
-        dataframe con los datos
+        data or metadata
         """
-        
-        # Una estación un rango de fechas de menos de 5 años
-        url = self.urls['estacion_dia'][0]
 
         if isinstance(estaciones, str):
             estaciones = (estaciones,)
         
+        if isinstance(y1, (date, datetime)):
+            y1 = y1.year
+        
+        if isinstance(y2, (date, datetime)):
+            y2 = y2.year
+            
         dr = AemetOpenData.years_ranges_get(y1, y2)
         
-        dfs = []
-        for e1 in estaciones:
-            for dr1 in dr:
-                url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/mensualesanuales/datos/anioini/{dr[0]}/aniofin/{dr[1]}/estacion/{e1}'
-                non_stop = True
-                while non_stop: 
-                    response = requests.request("GET", url, 
-                                                headers=self.headers,
-                                                params=self.querystring,
-                                                timeout=(2, 5))
-
-                    if response.status_code == AemetOpenData._RESPONSEOK:
-                        content = response.json()
-                        if 'datos' in content:
-                            df = pd.read_json(content["datos"], encoding='latin-1')
-                            dfs.append(df) 
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
-                        logging.append(msg) 
-                        non_stop = False
-                    elif response.status_code == AemetOpenData._TOOMANYREQUESTS:
-                        time.sleep(AemetOpenData._SLEEPSECONDS)
-                    elif response.status_code in (AemetOpenData._UNAUTHORIZED,
-                                                  AemetOpenData._NOTFOUND):
-                        content = response.json()
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: {content["estado"]}, {content["descripcion"]}'
-                        logging.append(msg) 
-                        non_stop = False                        
-                    else:
-                        msg = f'{e1}, {dr1[0]}, {dr1[1]}: status code {response.status_code}'
-                        logging.append(msg)                                                                                
-                        non_stop = False
-        if dfs:
-            return pd.concat(dfs, axis=0, ignore_index=True)
-        else:
-            return dfs
-
-
-if __name__ == "__main__":
-
-    startTime = time()
-
-    try:
-         
-        d1 = date(2000, 1, 1)
-        d2 = date(2023, 1, 1)
-        estaciones = ('7178I', '7002Y')
-        
-        aod = AemetOpenData()
-        data = aod.climatologias_diarias(d1, d2, estaciones)
-        print('Días descargados', len(data))
-
-    except ValueError:
-        msg = traceback.format_exc()
-        logging.append(msg)
-    except Exception:
-        msg = traceback.format_exc()
-        logging.append(msg)
-    finally:
-        logging.dump()
-        xtime = time() - startTime
-        print(f'El script tardó {xtime:0.1f} s')
-
+        mtype = 'climatologias_mensuales'
+        data = self.__request_variables_climatologicas(dr, estaciones, mtype,
+                                                       metadata)
+        return data
