@@ -5,7 +5,7 @@ Created on Sat Oct 26 10:15:17 2019
 @author: solis
 """
 try:
-    from calendar import isleap, monthrange
+    from calendar import isleap
     from datetime import date, datetime, timedelta
     import pandas as pd
     import pathlib
@@ -31,13 +31,18 @@ class AemetOpenData():
         climatologias_mensuales
     """
 
-   # code_value of Aemet server (according to Aemet) 
+    # type aliases to use in typing.Union
+    __TupStr = tuple[str]
+    __LisStr = list[str]
+
+   # code_value of Aemet server 
     _RESPONSEOK = 200
     _UNAUTHORIZED = 401
     _NOTFOUND = 404
     _TOOMANYREQUESTS = 429
     
     # request constants
+    _MAXREQUEST = 3
     _BACKOFF_FACTOR = 3
     _TIMEOUT = (2, 5)
     
@@ -152,13 +157,21 @@ class AemetOpenData():
 
 
     @staticmethod
-    def years_ranges_get(y1: int, y2: int) -> ((str, str)):
+    def years_ranges_get(y1: Union[int, date, datetime], 
+                         y2: Union[int, date, datetime]) -> ((str, str)):
         """
         Genera una serie de rangos de años years_range entre y1 y y2 con una 
         duración máxima max_nyears; los años en years_range son str de 4
         dígitos
         """
+        if isinstance(y1, (date, datetime)):
+            y1 = y1.year
+        
+        if isinstance(y2, (date, datetime)):
+            y2 = y2.year
+        
         cy = y1
+        AemetOpenData._MAX_NYEARS_ESTACION
         years_range = []
         for i in range(5000):
             diff = y2 - cy
@@ -174,56 +187,6 @@ class AemetOpenData():
                 break
             cy = yu + 1
         return years_range
-
-
-    def __request_v0(self, url: str, metadata: bool=False):
-        """
-        Petición de datos única (serie no temporal)
-
-        Parameters
-        ----------
-        url : url
-        metadata: If True only metadata are downloaded, otherwse only data
-        are downloaded
-
-        Returns
-        -------
-        df : data, metadata or None
-        """
-
-        df = None
-        non_stop = True
-        while non_stop: 
-            response = requests.request("GET", url, 
-                                        headers=self.headers,
-                                        params=self.querystring,
-                                        timeout=(2, 5))
-
-            if response.status_code == AemetOpenData._RESPONSEOK:
-                content = response.json()
-                if metadata:
-                    field = 'metadatos'
-                else:
-                    field = 'datos'
-                if field in content:
-                    df = pd.read_json(content[field],
-                                      encoding='latin-1')
-                msg = f'{content["estado"]}, {content["descripcion"]}'
-                logging.append(msg) 
-                non_stop = False
-            elif response.status_code == AemetOpenData._TOOMANYREQUESTS:
-                sleep(AemetOpenData._SLEEPSECONDS)
-            elif response.status_code in (AemetOpenData._UNAUTHORIZED,
-                                          AemetOpenData._NOTFOUND):
-                content = response.json()
-                msg = f'{content["estado"]}, {content["descripcion"]}'
-                logging.append(msg) 
-                non_stop = False                        
-            else:
-                msg = f'status code {response.status_code}'
-                logging.append(msg)                                                                                
-                non_stop = False
-        return df
 
 
     def __request_get(self, url: str, s: requests.Session)\
@@ -320,7 +283,8 @@ class AemetOpenData():
 
 
     def __request_variables_climatologicas\
-        (self, dr: [(str, str)], estaciones: Union[(str), str], mtype: str, 
+        (self, dr: [(str, str)], 
+         estaciones: Union[__TupStr, __LisStr, str], mtype: str, 
          dir_name: str=None, metadata: bool=False, verbose: bool=True) \
             -> (pd.DataFrame, str): 
         """
@@ -391,7 +355,10 @@ class AemetOpenData():
                     if f_name in file_names:
                         msg = f'{f_name} has been previously downloaded'
                         logging.append(msg)
-                        continue
+                        if metadata:
+                            break
+                        else:
+                            continue
 
                 r = self.__request_get(url, s)
                 df, description = self.__data_get(r, metadata)
@@ -411,21 +378,22 @@ class AemetOpenData():
 
 
     def estaciones_climatologicas(self, dir_out: str, metadata: bool=False) \
-        -> pd.DataFrame:
+        -> str:
         """
-        Devuelve los datos de las estaciones con datos de variables
-        climatológicas en Aemet OpenData
+        Retrieves data from meteorological stations using Aemet OpenData and
+            saves them to a file
 
         Parameters
         ----------
-        metadata: If True only metadata are downloaded, otherwse only data
-        are downloaded
+        dir_out: The name of the directory where the data file will be saved
+        metadata: If True only metadata will be saved, otherwise only data
+        will be saved
 
         Returns
         -------
-        data, metadata or None
+        file name with data or metadata
         """
-        FNAME = 'estaciones_open_data.csv'
+        FNAME = 'estaciones_open_data'
         URL = 'https://opendata.aemet.es/opendata/api/valores/'+\
             'climatologicos/inventarioestaciones/todasestaciones'
 
@@ -443,10 +411,15 @@ class AemetOpenData():
         r = self.__request_get(URL, s)
         df, description = self.__data_get(r, metadata)        
         if len(df) > 0:
-            file_path = dir_path.joinpath(FNAME)
+            if metadata:
+                file_name = FNAME + '_metadata.csv'
+            else:
+                file_name = FNAME + '.csv'
+            file_path = dir_path.joinpath(file_name)
             df.to_csv(file_path, index=False)
+            logging.append(f'Downloaded data in {file_name}')
        
-        return df
+        return file_name
 
 
     @staticmethod 
@@ -467,12 +440,12 @@ class AemetOpenData():
         """
         if type(d1) != type(d2):
             raise ValueError('types for d1 and d2 must be equal')
-        if not isinstance(d1, int, date, datetime):
-            raise ValueError('Icorrect type for d1 and d2')
+        if not isinstance(d1, (int, date, datetime)):
+            raise ValueError('Incorrect type for d1 and d2')
 
 
     def variables_clima_estacion(self, var_type: str, d1: date, d2: date, 
-                                 estaciones: Union[(str), [str], str],
+                                 estaciones: Union[__TupStr, __LisStr, str],
                                  dir_out: str,  metadata: bool=False,
                                  verbose: bool=True, use_files: bool=True) \
         -> [str]:
@@ -506,7 +479,7 @@ class AemetOpenData():
             raise ValueError(f'var_type not in {msg}')
 
         AemetOpenData.__check_ts_limits_types(d1, d2)
-        AemetOpenData.__shrink_ts_limits(d1, d2)
+        d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
         
         if isinstance(estaciones, str):
             estaciones = (estaciones,)

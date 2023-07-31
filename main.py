@@ -7,7 +7,6 @@ Created on Tue Jul 25 21:02:55 2023
 
 try:
     from datetime import date
-#    import pandas as pd
     from time import time
     import traceback
     
@@ -24,28 +23,29 @@ if __name__ == "__main__":
 
     try:
          
-        var_type = 'day'
+        var_type = 'month'
         d1 = date(2000, 1, 1)
         d2 = date(2023, 1, 1)
         estaciones = ('7178I', '7002Y')
         dir_output = './download'
-        metadata = True
-        use_files = False
+        metadata = False
+        verbose = True
+        use_files = True
         
         aod = AemetOpenData()
         
-        """
-    def variables_clima_estacion(self, var_type: str, d1: date, d2: date, 
-                                 estaciones: Union[(str), [str], str],
-                                 dir_out: str,  metadata: bool=False,
-                                 verbose: bool=True, use_files: bool=True) \
-        -> [str]:
-        """
-        file_names =\
-            aod.variables_clima_estacion(var_type, d1, d2, 
-                                     estaciones, dir_output,
-                                     metadata)
-        print('Ficheros descargados', len(file_names))
+
+        # ========= climatological stations =================================
+        aod.estaciones_climatologicas(dir_output, metadata = metadata)
+
+
+        # ========= daily or monthly data depending on var_type ============= 
+        # file_names =\
+        #     aod.variables_clima_estacion(var_type, d1, d2, 
+        #                              estaciones, dir_output,
+        #                              metadata = metadata, verbose = verbose,
+        #                              use_files = use_files)
+        # print('Ficheros descargados', len(file_names))
 
     except ValueError:
         msg = traceback.format_exc()
