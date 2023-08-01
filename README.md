@@ -1,10 +1,9 @@
 # AemetOpenData
 
-PROJECT IN CONSTRUCTION
-
 It downloads daily and monthly climatological data from Aemet OpenData (https://www.aemet.es/es/datos_abiertos/AEMET_OpenData).
 
 Requirements
+* Python
 * Pandas
 * Jupyter or Jupyter lab (optional)
 
