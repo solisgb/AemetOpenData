@@ -36,16 +36,16 @@ if __name__ == "__main__":
         
 
         # ========= climatological stations =================================
-        aod.estaciones_climatologicas(dir_output, metadata = metadata)
+        # aod.estaciones_climatologicas(dir_output, metadata = metadata)
 
 
         # ========= daily or monthly data depending on var_type ============= 
-        # file_names =\
-        #     aod.variables_clima_estacion(var_type, d1, d2, 
-        #                              estaciones, dir_output,
-        #                              metadata = metadata, verbose = verbose,
-        #                              use_files = use_files)
-        # print('Ficheros descargados', len(file_names))
+        file_names =\
+            aod.variables_clima_estacion(var_type, d1, d2, 
+                                      estaciones, dir_output,
+                                      metadata = metadata, verbose = verbose,
+                                      use_files = use_files)
+        print('Ficheros descargados', len(file_names))
 
     except ValueError:
         msg = traceback.format_exc()

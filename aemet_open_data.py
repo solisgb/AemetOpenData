@@ -448,6 +448,46 @@ class AemetOpenData():
             raise ValueError('Incorrect type for d1 and d2')
 
 
+    @staticmethod 
+    def __variables_clima_estacion_check_parameters\
+        (var_type, d1, d2, estaciones, dir_out, metadata, verbose, use_files):
+        """
+        check the parameter types of method variables_clima_estacion
+    
+        Raises
+        ------
+        TypeError
+        
+        Returns
+        -------
+        None.
+        """
+            
+        if not isinstance(var_type, str):
+            raise TypeError("Parameter 'var_type' must be str")
+ 
+        AemetOpenData.__check_ts_limits_types(d1, d2)
+        
+        if not isinstance(estaciones, (tuple, list, str)):
+            raise TypeError("Parameter 'estaciones' must be () or [] or str")
+        
+        if isinstance(estaciones, (tuple, list)):
+            not_str = []
+            for i, item in enumerate(estaciones):
+                if not isinstance(var_type, str):
+                    not_str.append(str(i))
+            if not_str:
+                msg = ', '.join(not_str)
+                raise TypeError("Parameter 'estaciones' has not str"+\
+                                f" members at positions {msg}")
+        
+        variables = {'metadata': metadata, 'verbose': verbose,
+                     'use_files': use_files}
+        for var_name, var_value in variables.items():
+            if not isinstance(var_value, bool):
+                raise TypeError("Parameter {var_name}' must be bool")
+            
+
     def variables_clima_estacion(self, var_type: str, d1: date, d2: date, 
                                  estaciones: Union[__TupStr, __LisStr, str],
                                  dir_out: str,  metadata: bool=False,
@@ -477,12 +517,17 @@ class AemetOpenData():
         [] with the the names of saved csv files. Each file has a subset of
             all data downloaded
         """
+
+        AemetOpenData.__variables_clima_estacion_check_parameters\
+            (var_type, d1, d2, estaciones, dir_out, metadata, verbose,
+             use_files)
+
         valid_var_types = ('day', 'month')
         if var_type not in valid_var_types:
             msg = ', '.join(valid_var_types)
-            raise ValueError(f'var_type not in {msg}')
+            raise ValueError(f'var_type not in {msg}')            
 
-        AemetOpenData.__check_ts_limits_types(d1, d2)
+
         d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
         
         if isinstance(estaciones, str):
@@ -512,3 +557,21 @@ class AemetOpenData():
                 file_names.append(fname)
         return file_names
 
+
+    def concatenate_files(self, var_type: str, dir_name: str, 
+                          file_name: str):
+        """
+        Concatenates previously downloaded csv files saved in dir_name in
+            a new csv file named file_name
+
+        Parameters
+        ----------
+        var_type : day for daily variables, month for monthly ones
+        dir_name : directory path to the directory where the files were
+            saved
+        file_name : file with data of all files 
+
+        Returns
+        -------
+        None.
+        """
