@@ -9,9 +9,9 @@ try:
     from datetime import date, datetime, timedelta
     import pandas as pd
     import pathlib
+    import re
     import requests
     from requests.adapters import HTTPAdapter, Retry
-    from time import sleep
     from typing import Union
     
     import littleLogging as logging
@@ -62,6 +62,16 @@ class AemetOpenData():
     def directory_exists(dname: str) -> bool:
         directory_path = pathlib.Path(dname)
         if directory_path.exists() and directory_path.is_dir():
+            return True
+        else:
+            return False
+
+
+    @staticmethod
+    def file_exists(dname: str, fname: str) -> bool:
+        d_path = pathlib.Path(dname)
+        file = d_path.join(fname) 
+        if file.exists() and file.is_filer():
             return True
         else:
             return False
@@ -319,6 +329,11 @@ class AemetOpenData():
              of the response provided by the server)
         """
         
+        """
+        If you modify the pattern of fnames, you must review the regex
+            patterns in concatenate_files method
+        """
+        
         valid_mtypes = ('day', 'month')
         if mtype not in valid_mtypes:
             msg = ', '.join(valid_mtypes)
@@ -426,6 +441,15 @@ class AemetOpenData():
         return file_name
 
 
+    @staticmethod
+    def __validate_var_type_param(var_type: str):
+
+        VALID_VAR_TYPES = ('day', 'month')
+        if var_type not in VALID_VAR_TYPES:
+            msg = ', '.join(VALID_VAR_TYPES)
+            raise ValueError(f'var_type not in {msg}')                    
+        
+
     @staticmethod 
     def __check_ts_limits_types(d1: Union[int, date, datetime],
                                 d2: Union[int, date, datetime]) -> bool:
@@ -522,11 +546,7 @@ class AemetOpenData():
             (var_type, d1, d2, estaciones, dir_out, metadata, verbose,
              use_files)
 
-        valid_var_types = ('day', 'month')
-        if var_type not in valid_var_types:
-            msg = ', '.join(valid_var_types)
-            raise ValueError(f'var_type not in {msg}')            
-
+        AemetOpenData.__validate_var_type_param(var_type)
 
         d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
         
@@ -559,19 +579,75 @@ class AemetOpenData():
 
 
     def concatenate_files(self, var_type: str, dir_name: str, 
-                          file_name: str):
+                          file_name: str, ask_overwrite: bool=True) -> [str]:
         """
-        Concatenates previously downloaded csv files saved in dir_name in
-            a new csv file named file_name
+        Concatenates data csv files in dir_name in a new csv file named
+            file_name; data csv files were daily or monthly data files
+            saved with the names given in this app; you select the type
+            of files to be saved by using var_type
 
         Parameters
         ----------
         var_type : day for daily variables, month for monthly ones
-        dir_name : directory path to the directory where the files were
-            saved
-        file_name : file with data of all files 
+        dir_name : directory path where the files
+        file_name : file with data of all files, this file is saved in
+            dir_name
 
         Returns
         -------
-        None.
+        List of concatenated csv files
         """
+        AemetOpenData.__validate_var_type_param(var_type)
+
+        if not AemetOpenData.directory_exists(dir_name):
+            msg = '{dir_name} is not a directory'
+            logging.append(msg)
+            raise ValueError(msg)
+
+        if AemetOpenData.file_exists(dir_name, file_name):
+            if ask_overwrite:
+                pass
+            
+        d_path = pathlib.Path(dir_name)
+        file_paths = d_path.glob('*.csv')
+        
+        REG_PATTERNS = {'day':  r'(_\d{8}T\d{6}UTC|\.csv)', 
+                        'month': r'(_\d{4}_\d{4}|\.csv)'}
+
+        concatenated_files = []
+        for i, f1 in enumerate(file_paths):
+            chunks = re.findall(REG_PATTERNS[var_type], f1.name)
+            if len(chunks) >= 2:
+                if i == 0:
+                    df = pd.read_csv(f1)
+                else:
+                    tmp = pd.read_csv(f1)
+                    df = pd.concat([df, tmp], axis=0, ignore_index=True)
+                concatenated_files.append(f1.name)
+
+        df.to_csv(d_path.join(file_name))        
+
+        return concatenated_files
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
