@@ -341,9 +341,13 @@ class AemetOpenData():
             for dr1 in dr:
                 
                 if mtype == 'day':
-                    url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/diarios/datos/fechaini/{dr1[0]}/fechafin/{dr1[1]}/estacion/{e1}'
+                    url = 'https://opendata.aemet.es/opendata/api/valores/'+\
+                        'climatologicos/diarios/datos/fechaini/'+\
+                            f'{dr1[0]}/fechafin/{dr1[1]}/estacion/{e1}'
                 else:
-                    url = f'https://opendata.aemet.es/opendata/api/valores/climatologicos/mensualesanuales/datos/anioini/{dr1[0]}/aniofin/{dr1[1]}/estacion/{e1}'
+                    url = 'https://opendata.aemet.es/opendata/api/valores/'+\
+                        'climatologicos/mensualesanuales/datos/anioini/'+\
+                            f'{dr1[0]}/aniofin/{dr1[1]}/estacion/{e1}'
 
                 if metadata:
                     f_name = 'climatologias_diarias_metadata.csv'
