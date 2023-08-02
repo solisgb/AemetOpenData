@@ -35,23 +35,15 @@ if __name__ == "__main__":
         files2exclude = ['7002Y_20091231T000000UTC_20141230T235959UTC.csv',
                          '7002Y_20141231T000000UTC_20191230T235959UTC.csv']
         
+        aod = AemetOpenData()
+        
         print('Aemet OpenData')
         
-        aod = AemetOpenData()
-        cfiles = aod.concatenate_files(var_type, dir_output,
-                                       'var_cli_diarias.csv')
-
-        print('Concatenated files')
-        print(cfiles)
-        raise SystemExit(0)
-
-
         # ========= climatological stations =================================
         overw = input('Want to download the characteristic of the'
                       ' meteorological stations? (y/n): ')
         if overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
             aod.estaciones_climatologicas(dir_output, metadata = metadata)
-
 
         # ========= daily or monthly data depending on var_type =============
         overw = input('Want to download the meteorological data? (y/n): ')
@@ -63,6 +55,16 @@ if __name__ == "__main__":
                                           verbose = verbose,
                                           use_files = use_files)
             print('Downloaded files', len(file_names))
+
+        # ========= concatenate previously downloaded files =================
+        overw = input('Want to concatenate downloaded csv files? (y/n): ')
+        if overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
+            unique_file = f'meteo_data_{var_type}.csv'
+            cfiles = aod.concatenate_files\
+                (var_type, dir_output, unique_file)            
+        print('Concatenated files', len(cfiles))
+        for f1 in cfiles: 
+            print(cfiles)
 
     except ValueError:
         msg = traceback.format_exc()

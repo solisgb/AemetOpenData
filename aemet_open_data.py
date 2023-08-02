@@ -7,6 +7,7 @@ Created on Sat Oct 26 10:15:17 2019
 try:
     from calendar import isleap
     from datetime import date, datetime, timedelta
+    import inspect
     import pandas as pd
     import pathlib
     import re
@@ -50,12 +51,18 @@ class AemetOpenData():
     _MAX_NDAYS_ESTACION = 365*5
     _MAX_NYEARS_ESTACION = 3
     
+    
     def __init__(self, file_name: str='apikey.txt'):
         # Reads a valid apikey from file
         with open(file_name) as f:
-            self.myapikey = f.readline()
-        self.querystring = {"api_key": self.myapikey}
-        self.headers = {'cache-control': "no-cache"}
+            self.__myapikey = f.readline()
+        self.__querystring = {"api_key": self.__myapikey}
+        self.__headers = {'cache-control': "no-cache"}
+
+
+    def get_public_methods(self):
+        return [name for name, _ in inspect.getmembers(self) \
+                if not name.startswith('_')]
 
 
     @staticmethod
@@ -113,7 +120,7 @@ class AemetOpenData():
 
 
     @staticmethod
-    def file_name_clean(fname: str):
+    def __file_name_clean(fname: str):
         fname = fname.replace('-', '')
         fname = fname.replace(':', '')
         return fname
@@ -253,7 +260,7 @@ class AemetOpenData():
         """
 
         try:
-            r = s.get(url, headers=self.headers, params=self.querystring,
+            r = s.get(url, headers=self.__headers, params=self.__querystring,
                       timeout=AemetOpenData._TIMEOUT)
             r.raise_for_status()
             return r
@@ -328,7 +335,7 @@ class AemetOpenData():
         return (df, description)
 
 
-    def __request_variables_climatologicas\
+    def __request_meteo_data\
         (self, dr: [(str, str)], 
          estaciones: Union[__TupStr, __LisStr, str], mtype: str, 
          dir_name: str=None, metadata: bool=False, verbose: bool=True) \
@@ -404,7 +411,7 @@ class AemetOpenData():
                     f_name = 'climatologias_diarias_metadata.csv'
                 else:
                     f_name = f'{e1}_{dr1[0]}_{dr1[1]}.csv'
-                    f_name = AemetOpenData.file_name_clean(f_name)
+                    f_name = AemetOpenData.__file_name_clean(f_name)
 
                 if dir_name is not None:
                     if f_name in file_names:
@@ -432,11 +439,11 @@ class AemetOpenData():
                 break
 
 
-    def estaciones_climatologicas(self, dir_out: str, metadata: bool=False) \
+    def meteo_stations(self, dir_out: str, metadata: bool=False) \
         -> str:
         """
-        Retrieves data from meteorological stations using Aemet OpenData and
-            saves them to a file
+        Retrieves characteristics of meteorological stations in Aemet
+            OpenData and saves them to a file
 
         Parameters
         ----------
@@ -487,7 +494,7 @@ class AemetOpenData():
         
 
     @staticmethod 
-    def __variables_clima_estacion_check_type_parameters\
+    def __data_meteo_stations_check_type_parameters\
         (var_type, d1, d2, estaciones, dir_out, metadata, verbose, use_files):
         """
         Check the parameter types of method variables_clima_estacion
@@ -498,19 +505,23 @@ class AemetOpenData():
         
         Returns
         -------
-        None.
+        bool
         """
             
         if not isinstance(var_type, str):
-            raise TypeError("Parameter 'var_type' must be str")
+            logging.append("Parameter 'var_type' must be str")
+            return False
  
         if type(d1) != type(d2):
-            raise TypeError('types for d1 and d2 must be equal')
+            logging.append('types for d1 and d2 must be equal')
+            return False
         if not isinstance(d1, (int, date, datetime)):
-            raise TypeError('Incorrect type for d1 and d2')
+            logging.append('Incorrect type for d1 and d2')
+            return False
         
         if not isinstance(estaciones, (tuple, list, str)):
-            raise TypeError("Parameter 'estaciones' must be () or [] or str")
+            logging.append("Parameter 'estaciones' must be () or [] or str")
+            return False
         
         if isinstance(estaciones, (tuple, list)):
             not_str = []
@@ -519,21 +530,24 @@ class AemetOpenData():
                     not_str.append(str(i))
             if not_str:
                 msg = ', '.join(not_str)
-                raise TypeError("Parameter 'estaciones' has not str"+\
+                logging.append("Parameter 'estaciones' has not str"+\
                                 f" members at positions {msg}")
+                return False
         
         variables = {'metadata': metadata, 'verbose': verbose,
                      'use_files': use_files}
         for var_name, var_value in variables.items():
             if not isinstance(var_value, bool):
-                raise TypeError("Parameter {var_name}' must be bool")
-            
+                logging.append("Parameter {var_name}' must be bool")
+                return False
 
-    def variables_clima_estacion(self, var_type: str, d1: date, d2: date, 
-                                 estaciones: Union[__TupStr, __LisStr, str],
-                                 dir_out: str,  metadata: bool=False,
-                                 verbose: bool=True, use_files: bool=True) \
-        -> [str]:
+        return True
+
+
+    def data_meteo_stations(self, var_type: str, d1: date, d2: date, 
+                            estaciones: Union[__TupStr, __LisStr, str],
+                            dir_out: str,  metadata: bool=False,
+                            verbose: bool=True, use_files: bool=True) -> [str]:
         """
         Retrieves daily or monthly climatological data from Aemet OpenData
             server.
@@ -559,9 +573,10 @@ class AemetOpenData():
             all data downloaded
         """
 
-        AemetOpenData.__variables_clima_estacion_check_type_parameters\
+        if not AemetOpenData.__data_meteo_stations_check_type_parameters\
             (var_type, d1, d2, estaciones, dir_out, metadata, verbose,
-             use_files)
+             use_files):
+            return []
 
         AemetOpenData.__validate_var_type_param(var_type)
 
@@ -586,7 +601,7 @@ class AemetOpenData():
         else:
             dr = AemetOpenData.years_ranges_get(d1, d2)
         
-        for df, fname in self.__request_variables_climatologicas\
+        for df, fname in self.__request_meteo_data\
             (dr, estaciones, var_type, dir_name, metadata, verbose):
             if len(df) > 0:
                 file_path = dir_path.joinpath(fname)
@@ -597,8 +612,8 @@ class AemetOpenData():
 
     @staticmethod 
     def __concatenate_files_check_type_parameters\
-        (var_type, dir_name, file_name, files2concat, files2exclude, 
-         ask_overwrite):
+        (var_type, dir_name, files2concat, files2exclude, ask_overwrite) \
+            -> bool:
         """
         Check the parameter types of method variables_clima_estacion
     
@@ -610,8 +625,7 @@ class AemetOpenData():
         -------
         None.
         """
-        d = {'var_type': var_type, 'dir_name': dir_name, 
-             'file_name': file_name}
+        d = {'var_type': var_type, 'dir_name': dir_name}
         for var, value in d.items():
             if not isinstance(value, str):
                 logging.append(f'Parameter {var} must be of type str')
@@ -641,7 +655,7 @@ class AemetOpenData():
         return True
 
 
-    def concatenate_files(self, var_type: str, dir_name: str, file_name: str, 
+    def concatenate_files(self, var_type: str, dir_name: str, 
                           files2concat: [str] = [],
                           files2exclude: [str] = [],
                           ask_overwrite: bool=True) -> [str]:
@@ -655,8 +669,6 @@ class AemetOpenData():
         ----------
         var_type: Day for daily variables, month for monthly ones
         dir_name: Directory path where the files
-        file_name: File with data of all files, this file is saved in
-            dir_name
         files2concat: If len(files2concat) > 0, only concats these files;
             otherwise concats the files that match a regex pattern; this
             pattern differs depending on var_type
@@ -669,7 +681,7 @@ class AemetOpenData():
         List of concatenated csv files
         """
         if not AemetOpenData.__concatenate_files_check_type_parameters\
-            (var_type, dir_name, file_name, files2concat, files2exclude,
+            (var_type, dir_name, files2concat, files2exclude,
              ask_overwrite):
                 return []
         
@@ -678,14 +690,15 @@ class AemetOpenData():
         if not AemetOpenData.directory_exists(dir_name):
             msg = '{dir_name} is not a directory'
             logging.append(msg)
-            raise ValueError(msg)
+            return []
 
-        if AemetOpenData.file_exists(dir_name, file_name):
+        unique_file = f'meteo_data_{var_type}.csv'
+        if AemetOpenData.file_exists(dir_name, unique_file):
             if ask_overwrite:
-                overw = input(f'File {file_name} exists, overwrite? (y/n): ')
+                overw = input(f'File {unique_file} exists, overwrite? (y/n): ')
                 if not overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
-                    logging.append('Change file name or overwrite it')
-                    return
+                    logging.append('{unique_file} has not been overwrited')
+                    return []
         
         d_path = pathlib.Path(dir_name)
         concatenated_files = []
@@ -726,7 +739,7 @@ class AemetOpenData():
                     if added:
                         concatenated_files.append(f1.name)                        
 
-        df.to_csv(d_path.joinpath(file_name), index=False)        
+        df.to_csv(d_path.joinpath(unique_file), index=False)        
 
         return concatenated_files
         
