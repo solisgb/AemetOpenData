@@ -59,8 +59,19 @@ class AemetOpenData():
 
 
     @staticmethod
-    def directory_exists(dname: str) -> bool:
-        directory_path = pathlib.Path(dname)
+    def directory_exists(d_name: str) -> bool:
+        """
+        Asks the question if the directory path d_name exists or not
+
+        Parameters
+        ----------
+        d_name : directory path as str to check
+
+        Returns
+        -------
+        bool
+        """
+        directory_path = pathlib.Path(d_name)
         if directory_path.exists() and directory_path.is_dir():
             return True
         else:
@@ -68,10 +79,22 @@ class AemetOpenData():
 
 
     @staticmethod
-    def file_exists(dname: str, fname: str) -> bool:
-        d_path = pathlib.Path(dname)
-        file = d_path.join(fname) 
-        if file.exists() and file.is_filer():
+    def file_exists(d_name: str, f_name: str) -> bool:
+        """
+        Asks the question if the file fname in the directory path d_name
+            exists or not
+
+        Parameters
+        ----------
+        d_name : directory path as str
+        f_name : file name as str to check
+        Returns
+        -------
+        bool
+        """        
+        d_path = pathlib.Path(d_name)
+        file = d_path.joinpath(f_name) 
+        if file.exists() and file.is_file():
             return True
         else:
             return False
@@ -137,12 +160,19 @@ class AemetOpenData():
 
 
     @staticmethod
-    def daily_ranges_get(d1: date, d2: date) -> ((str, str)):
+    def daily_ranges_get(d1: Union[date, datetime], 
+                         d2: Union[date, datetime]) -> ((str, str)):
         """
-        Genera una serie de rangos de fecha days_range entre d1 y d2 con una 
-        duración máxima max_ndays; las fechas en days_range son str en formato
-        de la API de Aemet OpenData
+        Generates a list of date ranges as days between d1 and d2 with a
+            maximum duration max_ndays each; the dates in days_range are str
+            in the format of the Aemet OpenData API.
         """
+        if type(d1) != type(d2):
+            raise TypeError('d1 and d2 must have the same type')
+
+        if not isinstance(d1, (date, datetime)):
+            raise TypeError('d1 and d2 must be of type date or datetime')
+        
         max_ndays = timedelta(AemetOpenData._MAX_NDAYS_ESTACION)
         one_day = timedelta(1) 
         cd = d1
@@ -170,15 +200,21 @@ class AemetOpenData():
     def years_ranges_get(y1: Union[int, date, datetime], 
                          y2: Union[int, date, datetime]) -> ((str, str)):
         """
-        Genera una serie de rangos de años years_range entre y1 y y2 con una 
-        duración máxima max_nyears; los años en years_range son str de 4
-        dígitos
+        Generates a series of year ranges years_range between y1 and y2 with a
+            maximum duration max_nyears each; the years in years_range are
+            4-digit strings required by the Aemet OpenData API.
         """
+        if type(y1) != type(y2):
+            raise TypeError('y1 and y2 must have the same type')
+        
+        if not isinstance(y1, (int, date, datetime)):
+            raise TypeError('y1 and y2 must be of type int or date or datetime')
+        
         if isinstance(y1, (date, datetime)):
             y1 = y1.year
-        
-        if isinstance(y2, (date, datetime)):
             y2 = y2.year
+        
+        y1, y2 = AemetOpenData.__swap_ts_limits(y1, y2)
         
         cy = y1
         AemetOpenData._MAX_NYEARS_ESTACION
@@ -451,32 +487,10 @@ class AemetOpenData():
         
 
     @staticmethod 
-    def __check_ts_limits_types(d1: Union[int, date, datetime],
-                                d2: Union[int, date, datetime]) -> bool:
-        """
-        As d1 and d2 can have many types, it checks that th types provided are
-            coherent
-
-        Parameters
-        ----------
-        d1 : Initial temporal limit
-        d2 : Final temporal limit
-
-        Returns
-        -------
-        Temporal limits according to var_type
-        """
-        if type(d1) != type(d2):
-            raise ValueError('types for d1 and d2 must be equal')
-        if not isinstance(d1, (int, date, datetime)):
-            raise ValueError('Incorrect type for d1 and d2')
-
-
-    @staticmethod 
-    def __variables_clima_estacion_check_parameters\
+    def __variables_clima_estacion_check_type_parameters\
         (var_type, d1, d2, estaciones, dir_out, metadata, verbose, use_files):
         """
-        check the parameter types of method variables_clima_estacion
+        Check the parameter types of method variables_clima_estacion
     
         Raises
         ------
@@ -490,15 +504,18 @@ class AemetOpenData():
         if not isinstance(var_type, str):
             raise TypeError("Parameter 'var_type' must be str")
  
-        AemetOpenData.__check_ts_limits_types(d1, d2)
+        if type(d1) != type(d2):
+            raise TypeError('types for d1 and d2 must be equal')
+        if not isinstance(d1, (int, date, datetime)):
+            raise TypeError('Incorrect type for d1 and d2')
         
         if not isinstance(estaciones, (tuple, list, str)):
             raise TypeError("Parameter 'estaciones' must be () or [] or str")
         
         if isinstance(estaciones, (tuple, list)):
             not_str = []
-            for i, item in enumerate(estaciones):
-                if not isinstance(var_type, str):
+            for i, e1 in enumerate(estaciones):
+                if not isinstance(e1, str):
                     not_str.append(str(i))
             if not_str:
                 msg = ', '.join(not_str)
@@ -542,7 +559,7 @@ class AemetOpenData():
             all data downloaded
         """
 
-        AemetOpenData.__variables_clima_estacion_check_parameters\
+        AemetOpenData.__variables_clima_estacion_check_type_parameters\
             (var_type, d1, d2, estaciones, dir_out, metadata, verbose,
              use_files)
 
@@ -578,8 +595,56 @@ class AemetOpenData():
         return file_names
 
 
-    def concatenate_files(self, var_type: str, dir_name: str, 
-                          file_name: str, ask_overwrite: bool=True) -> [str]:
+    @staticmethod 
+    def __concatenate_files_check_type_parameters\
+        (var_type, dir_name, file_name, files2concat, files2exclude, 
+         ask_overwrite):
+        """
+        Check the parameter types of method variables_clima_estacion
+    
+        Raises
+        ------
+        TypeError
+        
+        Returns
+        -------
+        None.
+        """
+        d = {'var_type': var_type, 'dir_name': dir_name, 
+             'file_name': file_name}
+        for var, value in d.items():
+            if not isinstance(value, str):
+                logging.append(f'Parameter {var} must be of type str')
+                return False
+
+        if not isinstance(ask_overwrite, bool):
+            logging.append('Parameter ask_overwrite must be of type bool')
+            return False
+
+        files2 = {'files2concat': files2concat, 
+                  'files2exclude': files2exclude}
+
+        for name, value in files2.items():
+            if not isinstance(value, (list, tuple)):
+                logging.append(f'Parameter {name} must be of type [] or ()')
+                return False
+            not_str = []
+            for i, v1 in enumerate(value):
+                if not isinstance(v1, str):
+                    not_str.append(str(i))
+            if not_str:
+                not_valid = ', '.join(not_str)
+                logging.append(f'Parameter {name} has not str values in'
+                               f' positions {not_valid}')
+                return False            
+        
+        return True
+
+
+    def concatenate_files(self, var_type: str, dir_name: str, file_name: str, 
+                          files2concat: [str] = [],
+                          files2exclude: [str] = [],
+                          ask_overwrite: bool=True) -> [str]:
         """
         Concatenates data csv files in dir_name in a new csv file named
             file_name; data csv files were daily or monthly data files
@@ -588,15 +653,26 @@ class AemetOpenData():
 
         Parameters
         ----------
-        var_type : day for daily variables, month for monthly ones
-        dir_name : directory path where the files
-        file_name : file with data of all files, this file is saved in
+        var_type: Day for daily variables, month for monthly ones
+        dir_name: Directory path where the files
+        file_name: File with data of all files, this file is saved in
             dir_name
-
+        files2concat: If len(files2concat) > 0, only concats these files;
+            otherwise concats the files that match a regex pattern; this
+            pattern differs depending on var_type
+        files2exclude: If len(files2concat) == 0 and len(files2exclude) > 0
+            the files in files2exclude will not be considered
+        ask_overwrite: If file_name exists, ask before overwrite it
+        
         Returns
         -------
         List of concatenated csv files
         """
+        if not AemetOpenData.__concatenate_files_check_type_parameters\
+            (var_type, dir_name, file_name, files2concat, files2exclude,
+             ask_overwrite):
+                return []
+        
         AemetOpenData.__validate_var_type_param(var_type)
 
         if not AemetOpenData.directory_exists(dir_name):
@@ -606,26 +682,51 @@ class AemetOpenData():
 
         if AemetOpenData.file_exists(dir_name, file_name):
             if ask_overwrite:
-                pass
-            
-        d_path = pathlib.Path(dir_name)
-        file_paths = d_path.glob('*.csv')
+                overw = input(f'File {file_name} exists, overwrite? (y/n): ')
+                if not overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
+                    logging.append('Change file name or overwrite it')
+                    return
         
-        REG_PATTERNS = {'day':  r'(_\d{8}T\d{6}UTC|\.csv)', 
-                        'month': r'(_\d{4}_\d{4}|\.csv)'}
-
+        d_path = pathlib.Path(dir_name)
         concatenated_files = []
-        for i, f1 in enumerate(file_paths):
-            chunks = re.findall(REG_PATTERNS[var_type], f1.name)
-            if len(chunks) >= 2:
-                if i == 0:
-                    df = pd.read_csv(f1)
+        if files2concat:
+            for i, f2c1 in enumerate(files2concat):
+                f1 = d_path.joinpath(f2c1)
+                if f1.exists() and f1.is_file():
+                    if i == 0:
+                        df = pd.read_csv(f1)
+                    else:
+                        tmp = pd.read_csv(f1)
+                        df = pd.concat([df, tmp], axis=0, ignore_index=True)
+                    concatenated_files.append(f1.name)                        
                 else:
-                    tmp = pd.read_csv(f1)
-                    df = pd.concat([df, tmp], axis=0, ignore_index=True)
-                concatenated_files.append(f1.name)
+                    logging.append(f'File {f1} does not exists')
+        else:    
+            file_paths = d_path.glob('*.csv')
+            
+            REG_PATTERNS = {'day':  r'(_\d{8}T\d{6}UTC|\.csv)', 
+                            'month': r'(_\d{4}_\d{4}|\.csv)'}
+    
+            first = True
+            for f1 in file_paths:
+                added = False
+                chunks = re.findall(REG_PATTERNS[var_type], f1.name)
+                if len(chunks) >= 2:
+                    if first:
+                        if f1.name not in files2exclude:
+                            df = pd.read_csv(f1)
+                            added = True
+                            first = False
+                    else:
+                        if f1.name not in files2exclude:
+                            tmp = pd.read_csv(f1)
+                            df = pd.concat([df, tmp], axis=0,
+                                           ignore_index=True)
+                            added = True
+                    if added:
+                        concatenated_files.append(f1.name)                        
 
-        df.to_csv(d_path.join(file_name))        
+        df.to_csv(d_path.joinpath(file_name), index=False)        
 
         return concatenated_files
         

@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     try:
          
-        var_type = 'month'
+        var_type = 'day'
         d1 = date(2000, 1, 1)
         d2 = date(2023, 1, 1)
         estaciones = ('7178I', '7002Y')
@@ -32,20 +32,37 @@ if __name__ == "__main__":
         verbose = True
         use_files = True
         
-        aod = AemetOpenData()
+        files2exclude = ['7002Y_20091231T000000UTC_20141230T235959UTC.csv',
+                         '7002Y_20141231T000000UTC_20191230T235959UTC.csv']
         
+        print('Aemet OpenData')
+        
+        aod = AemetOpenData()
+        cfiles = aod.concatenate_files(var_type, dir_output,
+                                       'var_cli_diarias.csv')
+
+        print('Concatenated files')
+        print(cfiles)
+        raise SystemExit(0)
+
 
         # ========= climatological stations =================================
-        # aod.estaciones_climatologicas(dir_output, metadata = metadata)
+        overw = input('Want to download the characteristic of the'
+                      ' meteorological stations? (y/n): ')
+        if overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
+            aod.estaciones_climatologicas(dir_output, metadata = metadata)
 
 
-        # ========= daily or monthly data depending on var_type ============= 
-        file_names =\
-            aod.variables_clima_estacion(var_type, d1, d2, 
-                                      estaciones, dir_output,
-                                      metadata = metadata, verbose = verbose,
-                                      use_files = use_files)
-        print('Ficheros descargados', len(file_names))
+        # ========= daily or monthly data depending on var_type =============
+        overw = input('Want to download the meteorological data? (y/n): ')
+        if overw.lower() in ('y', 'yes', 'si', 'sí', '1'):        
+            file_names =\
+                aod.variables_clima_estacion(var_type, d1, d2, 
+                                          estaciones, dir_output,
+                                          metadata = metadata, 
+                                          verbose = verbose,
+                                          use_files = use_files)
+            print('Downloaded files', len(file_names))
 
     except ValueError:
         msg = traceback.format_exc()
