@@ -739,7 +739,9 @@ class AemetOpenData():
                     if added:
                         concatenated_files.append(f1.name)                        
 
-        df.to_csv(d_path.joinpath(unique_file), index=False)        
+        unique_file = f'meteo_data_{var_type}.csv'
+        df.to_csv(d_path.joinpath(unique_file), index=False)
+        print(f'{unique_file} has been saved')        
 
         return concatenated_files
         
