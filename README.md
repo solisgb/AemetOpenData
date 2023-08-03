@@ -8,7 +8,7 @@ Requirements
 * Jupyter or Jupyter lab (optional)
 
 How to use it
-* If you have installed Jupyter, use the notebook for instructional (recommended) or production purposes (Spanish texts).
+* If you have installed Jupyter, use the notebook tutorial (Spanish texts) for instructional (recommended) or production purposes.
 * You can also use aemet_open_data from main.py. Firstly, you have to edit aemet_open_data_parameters.py because the parameters are written in this file. In this case, you don't need to have Jupyter 
   or Jupyter Lab installed.
 
