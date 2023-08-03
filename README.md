@@ -8,11 +8,11 @@ Requirements
 * Jupyter or Jupyter lab (optional)
 
 How to use it
-* The first thing you need to do is get a key (APIKEY) from (https://opendata.aemet.es/centrodedescargas/inicio), it's free. Copy and save it in the file apikey.txt.
-* If you have installed Jupyter, use the tutorial notebook (Spanish texts) for instructional (recommended) or production purposes.
-* You can also use aemet_open_data from the command line. Firstly, you have to edit aemet_open_data_parameters.py because the values of the parameters are written in this file. In this case, you don't need to have Jupyter 
-  or Jupyter Lab installed.
-
+* Create a directory, for example, AemetOpenData, to download the files.
+* Get a key (APIKEY) from (https://opendata.aemet.es/centrodedescargas/inicio) to access Aemet OpenData service, it's free. Copy and save it in the file apikey.txt.
+* If you have Jupyter installed, open the tutorial file and execute the instructions sequentially.
+* The module can also be used from the command line. Open the file aemet_open_data_parameters.py, assign the values to the parameters, and run the main.py file.
+"""
 
 
 
