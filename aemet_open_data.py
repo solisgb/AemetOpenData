@@ -13,6 +13,7 @@ try:
     import re
     import requests
     from requests.adapters import HTTPAdapter, Retry
+    from time import time
     from typing import Union
     
     import littleLogging as logging
@@ -50,6 +51,7 @@ class AemetOpenData():
     # limits in Aemet server (time series request)
     _MAX_NDAYS_ESTACION = 365*5
     _MAX_NYEARS_ESTACION = 3
+    __MIN_SECS_NOT_VERBOSE = 60
     
     
     def __init__(self, file_name: str='apikey.txt'):
@@ -437,6 +439,111 @@ class AemetOpenData():
                 
             if metadata:
                 break
+
+
+    def __request_meteo_data_all_stations\
+        (self, dr: [(str, str)], dir_name: str=None, downloads: str='both',
+         verbose: bool=False) \
+            -> (pd.DataFrame, str): 
+        """
+        Makes one or many request to the server and downloads the data 
+            in one or many files depending on the range of time series 
+            requested, in relation to the limits defined by Aemet for each
+            request. Daily data of all starions are returned
+        It returns the data as an iterator using yield
+        Parameters
+        ----------
+        dr : date or year ranges to do valid requests
+        downloads: stri in ('data', 'metadata', 'both'
+        dir_name. If it is none, it checks in the directory if the file 
+            corresponding to the request to be made already exists and if it
+            does, it will not make the data request to the server; if it is
+            none, this check is not made and the request to the server is
+            always made, the data is downloaded and the existing file is
+            overwritten.
+        verbose: If True shows information of results request in the screen
+        Raises
+        ------
+        ValueError
+        Returns
+        -------
+        Iterator: each iteration returns 
+        (df with data or metadata or len 0 dataframe, a server description 
+             of the response provided by the server)
+        """
+        
+        """
+        If you modify the pattern of fnames, you must review the regex
+            patterns in concatenate_files method
+        """
+        
+        VALID_DOWNLOADS = ('data', 'metadata', 'both')
+        downloads = downloads.lower()
+        if downloads not in VALID_DOWNLOADS:
+            msg = ', '.join(VALID_DOWNLOADS)
+            raise ValueError(f'downloads not in {msg}')
+
+        if dir_name is None:
+            file_names = []
+        else:
+            file_names = AemetOpenData.file_names_in_dir(dir_name, '*.csv')
+
+        s = requests.Session()
+        retries = Retry(total=AemetOpenData._MAXREQUEST, 
+                        backoff_factor=AemetOpenData._BACKOFF_FACTOR, 
+                        status_forcelist=[ AemetOpenData._TOOMANYREQUESTS ])
+        s.mount('http://', HTTPAdapter(max_retries=retries))
+
+        
+        startTime = time()
+        for dr1 in dr:
+
+            url = 'https://opendata.aemet.es/opendata/api/valores/'+\
+                f'climatologicos/diarios/datos/fechaini/{dr1[0]}/'+\
+                    f'fechafin/{dr1[1]}/todasestaciones'
+
+            out_file_names = {'data': None, 'metadata': None}
+            if downloads in ('data', 'both'):
+                out_file_names['data'] = f'stations_{dr1[0]}_{dr1[1]}_data.csv'
+                out_file_names['metadatadata'] = \
+                    f'stations_{dr1[0]}_{dr1[1]}_metadata.csv'
+            
+            if downloads == 'metadata':
+                out_file_names['metadatadata'] = \
+                    f'stations_{dr1[0]}_{dr1[1]}_metadata.csv'
+
+            for k, v in out_file_names.items():
+                if v is not None:
+                    out_file_names[k] = AemetOpenData.__file_name_clean(v)
+
+            download_period = {'data': True, 'metadata': True}
+            if dir_name is not None:
+                for k, v in out_file_names.items():
+                    if v in file_names:
+                        msg = f'{v} has been previously downloaded'
+                        logging.append(msg, verbose)
+                        download_period[k] = False
+
+            for k, v in download_period.items():
+                if v == True:
+                    r = self.__request_get(url, s)
+                    if k == 'data':
+                        metadata = False
+                    else:
+                        metadata == True
+                    df, description = self.__data_get(r, metadata)
+
+                    msg = f'{dr1[0]}, {dr1[1]}: '+\
+                                f'{r.status_code}, {r.reason} {description}'
+                    if verbose:
+                        logging.append(msg)
+                    else:
+                        xtime = time() - startTime
+                        if xtime > AemetOpenData.__MIN_SECS_NOT_VERBOSE:
+                            logging.append(msg)
+                            startTime = time()
+            
+                yield (df, out_file_names[k])
 
 
     def meteo_stations(self, dir_out: str, metadata: bool=False) \
