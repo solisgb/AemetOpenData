@@ -6,8 +6,10 @@ Created on Sat Oct 26 10:15:17 2019
 """
 try:
     from calendar import isleap
+    import csv
     from datetime import date, datetime, timedelta
     import inspect
+    import json
     import pandas as pd
     import pathlib
     import re
@@ -24,44 +26,68 @@ except ImportError as e:
 
 class AemetOpenData():
     """
-    Descarga datos climatológicos de Aemet OpenData
-    Interfaz pública:
-        daily_ranges_get
-        years_ranges_get
-        climatologias_estaciones
-        climatologias_diarias
-        climatologias_mensuales
+    Descarga datos meteorológicos del servidor Aemet OpenData
+    Download meteorological data from the Aemet OpenData server. 
+    Interfaz pública: run get_public_methods()
     """
 
-    # type aliases to use in typing.Union
+    # Type aliases to use in typing.Union
     __TupStr = tuple[str]
     __LisStr = list[str]
+    __list_dict = list[dict]
 
-   # code_value of Aemet server 
-    _RESPONSEOK = 200
-    _UNAUTHORIZED = 401
-    _NOTFOUND = 404
-    _TOOMANYREQUESTS = 429
+   # Response.code_values in requests to Aemet server 
+    __RESPONSEOK = 200
+    __UNAUTHORIZED = 401
+    __NOTFOUND = 404
+    __TOOMANYREQUESTS = 429
     
-    # request constants
-    _MAXREQUEST = 3
-    _BACKOFF_FACTOR = 3
-    _TIMEOUT = (2, 5)
+    # Parameters used in Request 
+    # After each failed connection attempt, it will sleep for
+    #  {backoff_factor} * (2 **(total number of retries - 1)) seconds
+    __MAXREQUEST = 3
+    __BACKOFF_FACTOR = 5
+    # Number of seconds Requests will wait for your client to establish a 
+    #  connection to a remote machine call on the socket. It’s a good practice
+    #  to set connect timeouts to slightly larger than a multiple of 3, which
+    #  is the default TCP packet retransmission window.
+    __TIMEOUT = (4, 28)
     
-    # limits in Aemet server (time series request)
+    # Maximum length of time series requests imposed by Aemet 
     __MAX_NDAYS_STATION = 365*5
     __MAX_NDAYS_ALL_STATIONS = 31
     __MAX_NYEARS_STATION = 3
+    
+    # For methods where multiple requests are made to the server, if verbose
+    #  is set to False, no messages will be displayed on the screen until the
+    #  time indicated below has elapsed.  
     __MIN_SECS_NOT_VERBOSE = 60
     
     
     def __init__(self, file_name: str='apikey.txt'):
-        # Reads a valid apikey from file
+        """
+        Reads a valid api key from file_name
+
+        Parameters
+        ----------
+        file_name : optional, the default is 'apikey.txt'.
+            File where api key has been saved
+        """
         with open(file_name) as f:
             self.__myapikey = f.readline()
         self.__querystring = {"api_key": self.__myapikey}
         self.__headers = {'cache-control': "no-cache"}
+        self.__s = requests.Session()
+        retries = Retry(total=AemetOpenData.__MAXREQUEST, 
+                        backoff_factor=AemetOpenData.__BACKOFF_FACTOR, 
+                        status_forcelist=[ AemetOpenData.__TOOMANYREQUESTS ])
+        self.s.mount('http://', HTTPAdapter(max_retries=retries))
 
+
+    @property
+    def s(self):
+        return self.__s
+    
 
     def get_public_methods(self):
         return [name for name, _ in inspect.getmembers(self) \
@@ -297,6 +323,65 @@ class AemetOpenData():
         return years_range
 
 
+    def __requests_get(self, url: str) -> requests.models.Response:
+        """
+        It makes a get request
+        Parameters
+        ----------
+        url : url.
+            
+        Raises
+        ------
+        SystemExit
+
+        Returns
+        -------
+        A tuple with the following content:
+        1) Requests.Response.status.code
+        2) Requests.Response.reason
+        3) description : A specific Aemet description in the response
+        4) data : Data response in json format. 
+            Depending on url the response can be:
+            1. First request to the server.
+            1.1. A dictionary with the scalar values.
+            2. Second request to the server.
+            2.1. Metadata of the meteorological data. A dictionary with scalar
+                 values except for the key 'fields', which is a list of
+                 dictionaries; each dictionary in the list is the description
+                 of a type of meteorological data.
+            2.1. Metadata of weather station characteristics. A dictionary
+                 with scalar values
+            2.2. Station feature data. A dictionary of scalar values.
+            2.3. Meteorological data. A list of dictionaries. Each dictionary
+                 in a row of data from a station on a date. 
+
+        """
+
+        try:
+            r = self.s.get\
+                (url, headers=self.__headers, params=self.__querystring,
+                 timeout=AemetOpenData.__TIMEOUT)
+            r.raise_for_status()
+            
+            decoded_content = r.content.decode('ISO-8859-15')
+            data = json.loads(decoded_content)
+            description = data['descripcion'] if 'descripcion' \
+                in data else ''            
+            return (r.status_code, r.reason, description, data)
+        except requests.exceptions.HTTPError as err:
+            msg = f'HTTPError, code {r.status_code}: {r.reason}'
+            logging.append(msg)
+            raise SystemExit(err)
+        except requests.exceptions.JSONDecodeError as err:
+            msg=f'JSON decode error {err}'  
+            logging.append(msg)
+            raise SystemExit(err)             
+        except Exception as err:
+            msg = f'Request error {err}'
+            logging.append(msg)
+            raise SystemExit(err)        
+
+
     def __request_get(self, url: str, s: requests.Session)\
         -> requests.models.Response:
         """
@@ -316,7 +401,7 @@ class AemetOpenData():
 
         try:
             r = s.get(url, headers=self.__headers, params=self.__querystring,
-                      timeout=AemetOpenData._TIMEOUT)
+                      timeout=AemetOpenData.__TIMEOUT)
             r.raise_for_status()
             return r
         except requests.exceptions.HTTPError as err:
@@ -393,7 +478,7 @@ class AemetOpenData():
     def __request_meteo_data\
         (self, dr: [(str, str)], 
          estaciones: Union[__TupStr, __LisStr, str], mtype: str, 
-         dir_name: str=None, metadata: bool=False, verbose: bool=True) \
+         dir_path: str=None, metadata: bool=False, verbose: bool=True) \
             -> (pd.DataFrame, str): 
         """
         Makes one or many request to the server and downloads the data 
@@ -410,7 +495,7 @@ class AemetOpenData():
             (valid_mtypes)
         metadata: If True only metadata are downloaded, otherwse only data
             are downloaded
-        dir_name. If it is none, it checks in the directory if the file 
+        dir_path. If it is none, it checks in the directory if the file 
             corresponding to the request to be made already exists and if it
             does, it will not make the data request to the server; if it is
             none, this check is not made and the request to the server is
@@ -437,15 +522,15 @@ class AemetOpenData():
             msg = ', '.join(valid_mtypes)
             raise ValueError(f'mtype not in {msg}')
 
-        if dir_name is None:
+        if dir_path is None:
             file_names = []
         else:
-            file_names = AemetOpenData.file_names_in_dir(dir_name, '*.csv')
+            file_names = AemetOpenData.file_names_in_dir(dir_path, '*.csv')
 
         s = requests.Session()
-        retries = Retry(total=AemetOpenData._MAXREQUEST, 
-                        backoff_factor=AemetOpenData._BACKOFF_FACTOR, 
-                        status_forcelist=[ AemetOpenData._TOOMANYREQUESTS ])
+        retries = Retry(total=AemetOpenData.__MAXREQUEST, 
+                        backoff_factor=AemetOpenData.__BACKOFF_FACTOR, 
+                        status_forcelist=[ AemetOpenData.__TOOMANYREQUESTS ])
         s.mount('http://', HTTPAdapter(max_retries=retries))
 
         for e1 in estaciones:
@@ -468,7 +553,7 @@ class AemetOpenData():
                     f_name = f'{e1}_{dr1[0]}_{dr1[1]}.csv'
                     f_name = AemetOpenData.__file_name_clean(f_name)
 
-                if dir_name is not None:
+                if dir_path is not None:
                     if f_name in file_names:
                         msg = f'{f_name} has been previously downloaded'
                         logging.append(msg)
@@ -492,51 +577,6 @@ class AemetOpenData():
                 
             if metadata:
                 break
-
-
-    def meteo_stations(self, dir_out: str, metadata: bool=False) \
-        -> str:
-        """
-        Retrieves characteristics of meteorological stations in Aemet
-            OpenData and saves them to a file
-
-        Parameters
-        ----------
-        dir_out: The name of the directory where the data file will be saved
-        metadata: If True only metadata will be saved, otherwise only data
-        will be saved
-
-        Returns
-        -------
-        file name with data or metadata
-        """
-        FNAME = 'estaciones_open_data'
-        URL = 'https://opendata.aemet.es/opendata/api/valores/'+\
-            'climatologicos/inventarioestaciones/todasestaciones'
-
-        if not AemetOpenData.directory_exists(dir_out):
-            logging.append(f'Directory {dir_out} not exists')
-            return
-        dir_path = pathlib.Path(dir_out)
-        
-        s = requests.Session()
-        retries = Retry(total=AemetOpenData._MAXREQUEST, 
-                        backoff_factor=AemetOpenData._BACKOFF_FACTOR, 
-                        status_forcelist=[ AemetOpenData._TOOMANYREQUESTS ])
-        s.mount('http://', HTTPAdapter(max_retries=retries))
-
-        r = self.__request_get(URL, s)
-        df, description = self.__data_get(r, metadata)        
-        if len(df) > 0:
-            if metadata:
-                file_name = FNAME + '_metadata.csv'
-            else:
-                file_name = FNAME + '.csv'
-            file_path = dir_path.joinpath(file_name)
-            df.to_csv(file_path, index=False)
-            logging.append(f'Downloaded data in {file_name}')
-       
-        return file_name
 
 
     @staticmethod
@@ -647,9 +687,9 @@ class AemetOpenData():
         dir_path = pathlib.Path(dir_out)
 
         if use_files:
-            dir_name = dir_out
+            dir_path = dir_out
         else:
-            dir_name = None
+            dir_path = None
         
         if var_type == 'day':
             dr = AemetOpenData.daily_ranges_get(d1, d2)
@@ -659,7 +699,7 @@ class AemetOpenData():
             return []
         
         for df, fname in self.__request_meteo_data\
-            (dr, estaciones, var_type, dir_name, metadata, verbose):
+            (dr, estaciones, var_type, dir_path, metadata, verbose):
             if len(df) > 0:
                 file_path = dir_path.joinpath(fname)
                 df.to_csv(file_path, index=False)
@@ -667,100 +707,209 @@ class AemetOpenData():
         return file_names
 
 
+    def __set_output_file_names\
+        (self, data_request: str, date_period: (str, str)) -> dict:
+        """
+        Sets the names of the files in which the data will be saved.
+        There are two types of files, one for data and one for metadata.
+
+        Parameters
+        ----------
+        data_request : Must have the value of 'data', 'metadata' or 'both'. 
+            Its value is checked in the calling function
+        date_period : Start and end date of the requested data in Aemet format
+        Returns
+        -------
+        Dictionary {'data': data file name, 'metadata': metadata file name}
+
+        """
+        file_name_template = 'stations_{}_{}_{}.csv'
+        file_names = {'data': None, 'metadata': None}
+        if data_request in ('data', 'both'):
+            file_names['data'] = \
+                file_name_template.format(date_period[0], date_period[1],
+                                          'data')
+            file_names['metadata'] = \
+                file_name_template.format(date_period[0], date_period[1],
+                                          'metadata')
+        
+        if data_request == 'metadata':
+            file_names['metadata'] = \
+                file_name_template.format(date_period[0], date_period[1],
+                                          'metadata')
+        
+        for k, v in file_names.items():
+            if v is not None:
+                file_names[k] = AemetOpenData.__file_name_clean(v)
+        
+        return file_names
+
+
+    def __data_download_status\
+        (self, file_names: {}, saved_files: [str], verbose: bool) -> \
+            {str: bool, str: bool}:
+        """
+        I have the names of the files where the data will be download.
+            The function checks if these file names exists in the list
+            of saved files (so data has been downloaded yet) or not. 
+            If files exists data doesn't be loaded again by returning False
+            for this file
+
+        Parameters
+        ----------
+        file_names : File names are provided for both data and metadata as a
+            dictionary {'data': data file name, 'metadata': metadata file name}
+        saved_files : Names of previously saved files
+        verbose : If True messages will be show in the screen
+        Returns
+        -------
+        Dictionary as {'data': True/False, 'metadata': True/False} 
+
+        """
+        request_data = {'data': True, 'metadata': True}
+        if saved_files:
+            for k, v in file_names.items():
+                if v in saved_files:
+                    msg = f'{v} has been previously downloaded'
+                    logging.append(msg, verbose)
+                    request_data[k] = False
+        return request_data
+
+
+    def __save_to_csv\
+        (self, csv_file_path: str, data: Union[dict, __list_dict]) -> None:
+        """
+        Save to a csv file the response to a request to the Aemet server 
+            previously converted to json format. The response can be a list
+            of dictionaries or a dictionary. In case metadata has been
+            requested, the meaning of the data columns are in the key 'fields'
+            ; in this case it is the only content that is saved.
+
+        Parameters
+        ----------
+        csv_file_path : csv file path where data will be saved
+        data : json response
+        Raises
+        ------
+        ValueError
+        Returns
+        -------
+        None
+
+        """
+        
+        if not isinstance(data, (list, dict)):
+            msg = 'data must have type list or dict'
+            raise ValueError(msg)
+        
+        if not data:
+            return
+            
+        with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+            csvwriter = csv.writer(csvfile)
+        
+            if isinstance(data, list):
+                header = data[0].keys()
+                csvwriter.writerow(header)
+                for item in data:
+                    csvwriter.writerow(item.values())
+            else:
+                if 'campos' in data:
+                    header = data['campos'][0].keys()
+                    csvwriter.writerow(header)
+                    for item in data['campos']:
+                        csvwriter.writerow(item.values())
+                else:
+                    header = data.keys()
+                    csvwriter.writerow(header)
+                    for item in data:
+                        csvwriter.writerow(item.values())
+
+
     def __request_meteo_data_all_stations\
-        (self, dr: [(str, str)], dir_name: str=None, downloads: str='both',
-         verbose: bool=False) \
-            -> (pd.DataFrame, str): 
+        (self, dr: [(str, str)], dir_path: str, data_request: str='both',
+         use_files: bool=True, verbose: bool=False) -> str: 
         """
         Makes one or many request to the server and downloads the data 
             in one or many files depending on the range of time series 
             requested, in relation to the limits defined by Aemet for each
-            request. Daily data of all starions are returned
-        It returns the data as an iterator using yield
+            request. Daily data of all stations are returned
+        It returns the names of the csv files where data will be saved as an 
+            iterator using yield
         Parameters
         ----------
         dr : date or year ranges to do valid requests
-        downloads: str in ('data', 'metadata', 'both'
-        dir_name. If it is none, it checks in the directory if the file 
-            corresponding to the request to be made already exists and if it
-            does, it will not make the data request to the server; if it is
-            none, this check is not made and the request to the server is
-            always made, the data is downloaded and the existing file is
-            overwritten.
+        data_request: str in ('data', 'metadata', 'both')
+        dir_path. Directory where csv files will be saved
+        use_files : If True checks that the file name already exists in 
+            dir_path and does not make the request to the server; otherwise 
+            the request is made and the pre-existing file is overwritten.
         verbose: If True shows information of results request in the screen
         Raises
         ------
         ValueError
         Returns
         -------
-        Iterator: each iteration returns 
-        (df with data or metadata or len 0 dataframe, a server description 
-             of the response provided by the server)
+        Iterator: each iteration returns the name of the csv file where data
+            has been saved
         """
         
         """
-        If you modify the pattern of fnames, you must review the regex
+        If you modify the pattern of ofile_names, you must review the regex
             patterns in concatenate_files method
         """
         
-        VALID_DOWNLOADS = ('data', 'metadata', 'both')
-        downloads = downloads.lower()
-        if downloads not in VALID_DOWNLOADS:
-            msg = ', '.join(VALID_DOWNLOADS)
-            raise ValueError(f'downloads not in {msg}')
+        VALID_DATA_REQUESTS = ('data', 'metadata', 'both')
+        data_request = data_request.lower()
+        if data_request not in VALID_DATA_REQUESTS:
+            msg = ', '.join(VALID_DATA_REQUESTS)
+            raise ValueError(f'data_request not in {msg}')
 
-        if dir_name is None:
-            file_names = []
+        if use_files:
+            saved_files = AemetOpenData.file_names_in_dir(dir_path, '*.csv')
         else:
-            file_names = AemetOpenData.file_names_in_dir(dir_name, '*.csv')
+            saved_files = []
 
-        s = requests.Session()
-        retries = Retry(total=AemetOpenData._MAXREQUEST, 
-                        backoff_factor=AemetOpenData._BACKOFF_FACTOR, 
-                        status_forcelist=[ AemetOpenData._TOOMANYREQUESTS ])
-        s.mount('http://', HTTPAdapter(max_retries=retries))
+        dir_path = pathlib.Path(dir_path)            
 
+        url_template =  'https://opendata.aemet.es/opendata/api/valores/'+\
+            'climatologicos/diarios/datos/fechaini/{}/fechafin/{}/'+\
+                'todasestaciones'
+        
+        file_name_template = 'stations_{}_{}_{}.csv'
         
         startTime = time()
         for dr1 in dr:
-
-            url = 'https://opendata.aemet.es/opendata/api/valores/'+\
-                f'climatologicos/diarios/datos/fechaini/{dr1[0]}/'+\
-                    f'fechafin/{dr1[1]}/todasestaciones'
-
-            out_file_names = {'data': None, 'metadata': None}
-            if downloads in ('data', 'both'):
-                out_file_names['data'] = f'stations_{dr1[0]}_{dr1[1]}_data.csv'
-                out_file_names['metadatadata'] = \
-                    f'stations_{dr1[0]}_{dr1[1]}_metadata.csv'
             
-            if downloads == 'metadata':
-                out_file_names['metadatadata'] = \
-                    f'stations_{dr1[0]}_{dr1[1]}_metadata.csv'
+            url = url_template.format(dr1[0], dr1[1])
 
-            for k, v in out_file_names.items():
-                if v is not None:
-                    out_file_names[k] = AemetOpenData.__file_name_clean(v)
+            ofile_names = AemetOpenData.__set_output_file_names_with_template\
+                (data_request, file_name_template, list(dr1), True)
 
-            download_period = {'data': True, 'metadata': True}
-            if dir_name is not None:
-                for k, v in out_file_names.items():
-                    if v in file_names:
-                        msg = f'{v} has been previously downloaded'
-                        logging.append(msg, verbose)
-                        download_period[k] = False
+            dd_status = self.__data_download_status\
+                (ofile_names, saved_files, verbose)
+            for k, v in dd_status.items():
+                if v == False:
+                    continue
+            
+                status_code1, reason1, description1, data1 = \
+                    self.__requests_get(url)
+                if status_code1 != AemetOpenData.__RESPONSEOK:
+                    continue
+                
+                aemet_key = 'datos' if k == 'data' else 'metadatos'
+                
+                if aemet_key in data1:
+                    status_code2, reason2, description2, data2 = \
+                        self.__requests_get(data1[aemet_key])
+                    if status_code2 != AemetOpenData.__RESPONSEOK:
+                        continue
+                    
+                    file_path = dir_path.joinpath(ofile_names[k])
+                    self.__save_to_csv(file_path, data2)
 
-            for k, v in download_period.items():
-                if v == True:
-                    r = self.__request_get(url, s)
-                    if k == 'data':
-                        metadata = False
-                    else:
-                        metadata == True
-                    df, description = self.__data_get(r, metadata)
-
-                    msg = f'{dr1[0]}, {dr1[1]}: '+\
-                                f'{r.status_code}, {r.reason} {description}'
+                    file_name = pathlib.Path(file_path).name
+                    msg = f'{file_name}: {status_code2}, {reason2} {description2}'
                     if verbose:
                         logging.append(msg)
                     else:
@@ -769,25 +918,21 @@ class AemetOpenData():
                             logging.append(msg)
                             startTime = time()
             
-                yield (df, out_file_names[k])
+                    yield ofile_names[k]
         
 
     @staticmethod 
-    def __data_meteo_all_stations_check_type_parameters\
-        (d1, d2, dir_out, downloads, verbose, use_files):
+    def __meteo_data_all_stations_check_type_parameters\
+        (d1, d2, dir_path, data_request, verbose, use_files):
         """
         Check the parameter types of method variables_clima_estacion
-    
-        Raises
-        ------
-        TypeError
         
         Returns
         -------
-        bool
+        bool: True if parameters have the right type
         """
             
-        variables = {'dir_out': dir_out, 'downloads': downloads}
+        variables = {'dir_path': dir_path, 'data_request': data_request}
         for var_name, var_value in variables.items():
             if not isinstance(var_value, str):
                 logging.append("Parameter {var_name}' must be str")
@@ -809,23 +954,23 @@ class AemetOpenData():
         return True
 
 
-    def data_meteo_all_stations\
-        (self, d1: date, d2: date, dir_out: str, downloads: str='both',
+    def meteo_data_all_stations\
+        (self, d1: date, d2: date, dir_path: str, data_request: str='both',
          verbose: bool=True, use_files: bool=True) -> [str]:
         """
-        Retrieves daily climatological data from all the station in Aemet
+        Retrieves daily meteorological data from all the station in Aemet
             OpenData server.
 
         Parameters
         ----------
         d1 : Initial date
         d2 : Final date
-        dir_out : Each request to Aemet server is saved as a csv file in the
-            directory dir_out        
-        downloads: str in ('data', 'metadata', 'both'        
+        dir_path : Each request to Aemet server is saved as a csv file in the
+            directory dir_path      
+        data_request: str in ('data', 'metadata', 'both'        
         verbose: If True shows detailed information of results request in the
             screen
-        use_files : If True checks that the file name already exists in dir_out
+        use_files : If True checks that the file name already exists in dir_path
             and does not make the request to the server; otherwise the request
             is made and the pre-existing file is overwritten.
         Returns
@@ -834,37 +979,161 @@ class AemetOpenData():
             all data downloaded
         """
 
-        if not AemetOpenData.__data_meteo_all_stations_check_type_parameters\
-            (d1, d2, dir_out, downloads, verbose, use_files):
+        if not AemetOpenData.__meteo_data_all_stations_check_type_parameters\
+            (d1, d2, dir_path, data_request, verbose, use_files):
             return []
 
         d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
             
-        file_names = []
-        if not AemetOpenData.directory_exists(dir_out):
-            logging.append(f'Directory {dir_out} not exists')
-            return file_names
-        dir_path = pathlib.Path(dir_out)
-
-        if use_files:
-            dir_name = dir_out
-        else:
-            dir_name = None
+        ofile_names = []
+        if not AemetOpenData.directory_exists(dir_path):
+            logging.append(f'Directory {dir_path} not exists')
+            return ofile_names
+        dir_path = pathlib.Path(dir_path)
 
         dr = AemetOpenData.daily_ranges_get(d1, d2, selected_stations=False)
         
-        for df, fname in self.__request_meteo_data_all_stations\
-            (dr, dir_name, downloads, verbose):
-            if len(df) > 0:
-                file_path = dir_path.joinpath(fname)
-                df.to_csv(file_path, index=False)
-                file_names.append(fname)
+        for ofname1 in self.__request_meteo_data_all_stations\
+            (dr, dir_path, data_request, use_files, verbose):
+            ofile_names.append(ofname1)
+        return ofile_names
+
+
+    @staticmethod
+    def __set_output_file_names_with_template\
+        (data_request: str, file_name_template: str, params: [str],
+         label_data_meta: bool) -> dict:
+        """
+        Sets the names of the files in which the data will be saved.
+        There are two types of files, one for data and one for metadata.
+
+        Parameters
+        ----------
+        data_request : Must have the value of 'data', 'metadata' or 'both'. 
+            Its value is checked in the calling function
+        file_name_template : Template for fine name
+        parameters : Parameters for placeholders in file_name_template
+        label_data_meta : 'data' or 'metadata' will be added to 
+            file_name_template
+        Returns
+        -------
+        Dictionary {'data': data file name, 'metadata': metadata file name}
+
+        """
+        if len(file_name_template) == 0:
+            return file_name_template
+    
+        placeholders = file_name_template.count('{}')
+        n = len(params)
+        if label_data_meta:
+            if placeholders != n + 1:
+                msg = 'num. placeholders should be equal num. params + 1'
+                raise ValueError(msg)
+        else:
+            if placeholders != n:
+                msg = 'num. placeholders should be equal num. params'
+                raise ValueError(msg)
+                
+        file_names = {'data': None, 'metadata': None}
+        if data_request in ('data', 'both'):
+            _params = params.copy()
+            if label_data_meta: _params.append('data') 
+            file_names['data'] = file_name_template.format(*_params)
+        
+        if data_request in ('metadata', 'both'):
+            _params = params.copy()
+            if label_data_meta: _params.append('metadata')
+            file_names['metadata'] = file_name_template.format(*_params)
+
+        for k, v in file_names.items():
+            if v is not None:
+                file_names[k] = AemetOpenData.__file_name_clean(v)
+
         return file_names
+
+
+    def meteo_stations(self, dir_path: str, data_request: str='both',
+             use_files: bool=True, verbose: bool=False) -> None:
+        """
+        Retrieves characteristics of meteorological stations in Aemet
+            OpenData and saves them to a file
+
+        Parameters
+        ----------
+        data_request: str in ('data', 'metadata', 'both')
+        dir_path. Directory where csv files will be saved
+        use_files : If True checks that the file name already exists in 
+            dir_path and does not make the request to the server; otherwise 
+            the request is made and the pre-existing file is overwritten.
+        verbose: If True shows information of results request in the screen
+
+        Returns
+        -------
+        yields file name of data, metadata or both
+        """
+        startTime = time()
+        
+        url = 'https://opendata.aemet.es/opendata/api/valores/'+\
+            'climatologicos/inventarioestaciones/todasestaciones'
+
+        if not AemetOpenData.directory_exists(dir_path):
+            logging.append(f'Directory {dir_path} not exists')
+            return
+        dir_path = pathlib.Path(dir_path)
+
+        VALID_DATA_REQUESTS = ('data', 'metadata', 'both')
+        data_request = data_request.lower()
+        if data_request not in VALID_DATA_REQUESTS:
+            msg = ', '.join(VALID_DATA_REQUESTS)
+            raise ValueError(f'data_request not in {msg}')
+
+        if use_files:
+            saved_files = AemetOpenData.file_names_in_dir(dir_path, '*.csv')
+        else:
+            saved_files = []
+        
+        file_name_template = 'estaciones_open_data_{}.csv'
+
+        ofile_names = AemetOpenData.__set_output_file_names_with_template\
+            (data_request, file_name_template, [], True)
+
+        dd_status = self.__data_download_status\
+            (ofile_names, saved_files, verbose)
+        for k, v in dd_status.items():
+            if v == False:
+                continue
+        
+            status_code1, reason1, description1, data1 = \
+                self.__requests_get(url)
+            if status_code1 != AemetOpenData.__RESPONSEOK:
+                continue
+            
+            aemet_key = 'datos' if k == 'data' else 'metadatos'
+            
+            if aemet_key in data1:
+                status_code2, reason2, description2, data2 = \
+                    self.__requests_get(data1[aemet_key])
+                if status_code2 != AemetOpenData.__RESPONSEOK:
+                    continue
+                
+                file_path = dir_path.joinpath(ofile_names[k])
+                self.__save_to_csv(file_path, data2)
+
+                file_name = pathlib.Path(file_path).name
+                msg = f'{file_name}: {status_code2}, {reason2} {description2}'
+                if verbose:
+                    logging.append(msg)
+                else:
+                    xtime = time() - startTime
+                    if xtime > AemetOpenData.__MIN_SECS_NOT_VERBOSE:
+                        logging.append(msg)
+                        startTime = time()
+        
 
 
     @staticmethod 
     def __concatenate_files_check_type_parameters\
-        (var_type, dir_name, files2concat, files2exclude, ask_overwrite) \
+        (var_type, dir_path, files2concat, files2exclude, ask_overwrite) \
             -> bool:
         """
         Check the parameter types of method variables_clima_estacion
@@ -877,7 +1146,7 @@ class AemetOpenData():
         -------
         None.
         """
-        d = {'var_type': var_type, 'dir_name': dir_name}
+        d = {'var_type': var_type, 'dir_path': dir_path}
         for var, value in d.items():
             if not isinstance(value, str):
                 logging.append(f'Parameter {var} must be of type str')
@@ -907,12 +1176,12 @@ class AemetOpenData():
         return True
 
 
-    def concatenate_files(self, var_type: str, dir_name: str, 
+    def concatenate_files(self, var_type: str, dir_path: str, 
                           files2concat: [str] = [],
                           files2exclude: [str] = [],
                           ask_overwrite: bool=True) -> [str]:
         """
-        Concatenates data csv files in dir_name in a new csv file named
+        Concatenates data csv files in dir_path in a new csv file named
             file_name; data csv files were daily or monthly data files
             saved with the names given in this app; you select the type
             of files to be saved by using var_type
@@ -920,7 +1189,7 @@ class AemetOpenData():
         Parameters
         ----------
         var_type: Day for daily variables, month for monthly ones
-        dir_name: Directory path where the files
+        dir_path: Directory path where the downloaded files were saved
         files2concat: If len(files2concat) > 0, only concats these files;
             otherwise concats the files that match a regex pattern; this
             pattern differs depending on var_type
@@ -933,26 +1202,26 @@ class AemetOpenData():
         List of concatenated csv files
         """
         if not AemetOpenData.__concatenate_files_check_type_parameters\
-            (var_type, dir_name, files2concat, files2exclude,
+            (var_type, dir_path, files2concat, files2exclude,
              ask_overwrite):
                 return []
         
         AemetOpenData.__validate_var_type_param(var_type)
 
-        if not AemetOpenData.directory_exists(dir_name):
-            msg = '{dir_name} is not a directory'
+        if not AemetOpenData.directory_exists(dir_path):
+            msg = '{dir_path} is not a directory'
             logging.append(msg)
             return []
 
         unique_file = f'meteo_data_{var_type}.csv'
-        if AemetOpenData.file_exists(dir_name, unique_file):
+        if AemetOpenData.file_exists(dir_path, unique_file):
             if ask_overwrite:
                 overw = input(f'File {unique_file} exists, overwrite? (y/n): ')
                 if not overw.lower() in ('y', 'yes', 'si', 'sí', '1'):
                     logging.append('{unique_file} has not been overwrited')
                     return []
         
-        d_path = pathlib.Path(dir_name)
+        d_path = pathlib.Path(dir_path)
         concatenated_files = []
         if files2concat:
             for i, f2c1 in enumerate(files2concat):

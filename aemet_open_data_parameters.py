@@ -7,33 +7,45 @@ Created on Thu Aug  3 09:38:41 2023
 from datetime import date
 
 # Here you set the values of the parameters of the methods used.
+# For more information see the docstring of the methods in
+# aemet_open_data.py
 
          
 # To download characteristics of meteorological stations in Aemet OpenData
 #  we use the method meteo_stations. It has the following parameters:
+    
+dir_path = '.\download\data_all_stations'  # files will be saved here
+data_request = 'both'  # 'data', 'metadata' or 'both'
+use_files = True  # prevents downloading files that have already been downloaded   
+verbose = True  # messages in screen
 
-var_type = 'day'
-metadata = False
 
-# To download data from meteorological stations we use the method
-#  data_meteo_stations. Besides the parameters above, this method takes
-# the following specific parameters:
+# Common parameters of all methods that download meteorological data
+d1 = date(1985, 1, 1)  # start date
+d2 = date(1985, 12, 31)  # end date
+
+
+# To download daily data from all meteorological stations we use the method
+#  meteo_data_all_stations
+# There are no new parameters with respect to those defined above. 
+
+
+# To download data from some meteorological stations we use the method
+#  data_meteo_stations. 
+# Specific parameters:
+
+var_type = 'day'  # 'day' or 'month'
+estaciones = ('7178I', '7002Y')  # list with station identifiers
+metadata = False  # if True data will be downloaded, otherwise metadata
+
+
+# To concatenate the CSV files with the meteorolofical data downloaded using
+#  meteo_data_all_stations or data_meteo_stations, we use the method
+#  concatenate_files. Specific parameters:
  
-d1 = date(2000, 1, 1)
-d2 = date(2023, 1, 1)
-dir_output = './download'
-metadata = False
-verbose = True
-use_files = True
-
-# To concatenate the CSV files with the data downloaded using method 
-#  data_meteo_stations, we use the method concatenate_files. In addition to the
-#  previously used parameter dir_output, it has the following specific
-#  parameters:
- 
-files2concat = []
-files2exclude = []
-ask_overwrite = True
+files2concat = []  # if you want to concatenate some files only
+files2exclude = []  # if yoy want to exclude some files
+ask_overwrite = True  # if the final file already exists ask before overwriting 
         
 
         
