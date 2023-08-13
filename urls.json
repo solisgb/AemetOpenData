@@ -1,5 +1,0 @@
-{
-	"estaciones": ["https://opendata.aemet.es/opendata/api/valores/climatologicos/inventarioestaciones/todasestaciones", []],
-	"estacion_dia": ["https://opendata.aemet.es/opendata/api/valores/climatologicos/diarios/datos/fechaini/fechaIniStr/fechafin/fechaFinStr/estacion/idema", ["fechaIniStr format AAAA-MM-DDTHH:MM:SSUTC", "fechaFinStr format AAAA-MM-DDTHH:MM:SSUTC", "idema"]],
-	"estacion_mes": ["https://opendata.aemet.es/opendata/api/valores/climatologicos/mensualesanuales/datos/anioini/anioIniStr/aniofin/anioFinStr/estacion/idema", ["anioIniStr format AAAA", "anioFinStr format AAAA", "idema"]]
-}
