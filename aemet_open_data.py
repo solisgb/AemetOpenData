@@ -22,6 +22,21 @@ try:
 except ImportError as e:
     print( getattr(e, 'message', repr(e)))
     raise SystemExit(0)
+        
+        
+class ScalarContainer:
+    def __init__(self, item):
+        self.__x = item
+
+
+    @property
+    def x(self):
+        return self.__x
+
+
+    @x.setter
+    def x(self, item):
+        self.__x = item
 
 
 class AemetOpenData():
@@ -826,6 +841,61 @@ class AemetOpenData():
                         csvwriter.writerow(item.values())
 
 
+    def __request_and_save_file\
+        (self, url: str, k: str, ofile_names: dict, dir_path, verbose: bool,
+         start_time: ScalarContainer) -> bool:
+        """
+        Makes a first request to url; if response is ok makes a second request
+            to one of the urls included in the response depending on the value
+            of k.
+
+        Parameters
+        ----------
+        url : A valid url
+        k : Its value is 'datos' or 'metadatos'
+        ofile_names : Names for the output files. It's a dict with 2 keys:
+            'data' or 'metadata'
+        dir_path : Directory path where file with downloaded data will be saved
+        verbose: Determines when messages are showed
+        l_with_start_time: list with only a element that determines the 
+            reference time to show the messages in the screen
+
+        Returns
+        -------
+        True if the process is completed, otherwise False
+
+        """
+        status_code1, reason1, description1, data1 = \
+            self.__requests_get(url)
+        if status_code1 != AemetOpenData.__RESPONSEOK:
+            return False
+        
+        aemet_key = 'datos' if k == 'data' else 'metadatos'
+        
+        if aemet_key in data1:
+            status_code2, reason2, description2, data2 = \
+                self.__requests_get(data1[aemet_key])
+            if status_code2 != AemetOpenData.__RESPONSEOK:
+                return False
+            
+            file_path = dir_path.joinpath(ofile_names[k])
+            self.__save_to_csv(file_path, data2)
+            
+            file_name = pathlib.Path(file_path).name
+            msg = f'{file_name}: {status_code2}, {reason2} {description2}'
+            if verbose:
+                logging.append(msg)
+            else:
+                xtime = time() - start_time.x
+                if xtime > AemetOpenData.__MIN_SECS_NOT_VERBOSE:
+                    logging.append(msg)
+                    start_time.x = time()
+            
+            return True
+        else:
+            return False
+
+
     def __request_meteo_data_all_stations\
         (self, dr: [(str, str)], dir_path: str, data_request: str='both',
          use_files: bool=True, verbose: bool=False) -> str: 
@@ -878,7 +948,7 @@ class AemetOpenData():
         
         file_name_template = 'stations_{}_{}_{}.csv'
         
-        startTime = time()
+        start_time = ScalarContainer(time())
         for dr1 in dr:
             
             url = url_template.format(dr1[0], dr1[1])
@@ -891,34 +961,12 @@ class AemetOpenData():
             for k, v in dd_status.items():
                 if v == False:
                     continue
-            
-                status_code1, reason1, description1, data1 = \
-                    self.__requests_get(url)
-                if status_code1 != AemetOpenData.__RESPONSEOK:
+    
+                if not self.__request_and_save_file\
+                    (url, k, ofile_names, dir_path, verbose, start_time):
                     continue
-                
-                aemet_key = 'datos' if k == 'data' else 'metadatos'
-                
-                if aemet_key in data1:
-                    status_code2, reason2, description2, data2 = \
-                        self.__requests_get(data1[aemet_key])
-                    if status_code2 != AemetOpenData.__RESPONSEOK:
-                        continue
-                    
-                    file_path = dir_path.joinpath(ofile_names[k])
-                    self.__save_to_csv(file_path, data2)
-
-                    file_name = pathlib.Path(file_path).name
-                    msg = f'{file_name}: {status_code2}, {reason2} {description2}'
-                    if verbose:
-                        logging.append(msg)
-                    else:
-                        xtime = time() - startTime
-                        if xtime > AemetOpenData.__MIN_SECS_NOT_VERBOSE:
-                            logging.append(msg)
-                            startTime = time()
             
-                    yield ofile_names[k]
+                yield ofile_names[k]
         
 
     @staticmethod 
@@ -1265,8 +1313,7 @@ class AemetOpenData():
         print(f'{unique_file} has been saved')        
 
         return concatenated_files
-        
-        
+
         
         
         
