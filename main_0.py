@@ -42,7 +42,7 @@ if __name__ == "__main__":
             raise SystemExit(0)
             
         adv = 'Daily'
-        if par.data_request == 'month':
+        if par.time_step == 'month':
             adv = 'Monthly'
             
         aod = AemetOpenData()
@@ -52,29 +52,30 @@ if __name__ == "__main__":
         print('2. Daily data from all meteorological stations')
         print(f'3. {adv} data of selected meteorological stations')
         print('4. Concatenate previously downloaded csv files ')
-        ans = input('\nWrite the number of the option or any other key to quit: ')
+        ans = input\
+            ('\nWrite the number of the option or any other key to quit: ')
         print('')
         if ans == '1': 
             aod.meteo_stations\
-                (par.dir_path, par.data_request, par.use_files, par.verbose)
+                (par.dir_path, par.fetch, par.use_files, par.verbose)
         elif ans == '2':
             file_names =\
                 aod.meteo_data_all_stations(par.d1, par.d2, par.dir_path, 
-                                            data_request = par.data_request, 
+                                            data_request = par.fetch, 
                                             verbose = par.verbose, 
                                             use_files = par.use_files)
 
             print('Downloaded files', len(file_names))                
         elif ans == '3':
             file_names =\
-                aod.data_meteo_stations(par.var_type, par.d1, par.d2, 
-                                        par.estaciones, par.dir_path,
-                                        metadata = par.metadata, 
-                                        verbose = par.verbose,
-                                        use_files = par.use_files)
+                aod.meteo_data_by_station(par.time_step, par.d1, par.d2, 
+                                          par.estaciones, par.dir_path,
+                                          metadata = par.metadata, 
+                                          verbose = par.verbose,
+                                          use_files = par.use_files)
             print('Downloaded files', len(file_names))
         elif ans == '4':
-            cfiles = aod.concatenate_files(par.var_type, par.dir_path,
+            cfiles = aod.concatenate_files(par.time_step, par.dir_path,
                                            par.files2concat,
                                            par.files2exclude, 
                                            par.ask_overwrite)            

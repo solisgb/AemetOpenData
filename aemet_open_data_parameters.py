@@ -15,7 +15,7 @@ from datetime import date
 #  we use the method meteo_stations. It has the following parameters:
     
 dir_path = '.\download\data_all_stations'  # files will be saved here
-data_request = 'both'  # 'data', 'metadata' or 'both'
+fetch = 'both'  # 'data', 'metadata' or 'both'
 use_files = True  # prevents downloading files that have already been downloaded   
 verbose = True  # messages in screen
 
@@ -34,7 +34,7 @@ d2 = date(1985, 12, 31)  # end date
 #  data_meteo_stations. 
 # Specific parameters:
 
-var_type = 'day'  # 'day' or 'month'
+time_step = 'day'  # 'day' or 'month'
 estaciones = ('7178I', '7002Y')  # list with station identifiers
 metadata = False  # if True data will be downloaded, otherwise metadata
 
