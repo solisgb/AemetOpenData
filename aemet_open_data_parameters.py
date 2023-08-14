@@ -35,8 +35,7 @@ d2 = date(1985, 12, 31)  # end date
 # Specific parameters:
 
 time_step = 'day'  # 'day' or 'month'
-estaciones = ('7178I', '7002Y')  # list with station identifiers
-metadata = False  # if True data will be downloaded, otherwise metadata
+stations = ('7178I', '7002Y')  # list with station identifiers
 
 
 # To concatenate the CSV files with the meteorolofical data downloaded using

@@ -68,11 +68,10 @@ if __name__ == "__main__":
             print('Downloaded files', len(file_names))                
         elif ans == '3':
             file_names =\
-                aod.meteo_data_by_station(par.time_step, par.d1, par.d2, 
-                                          par.estaciones, par.dir_path,
-                                          metadata = par.metadata, 
-                                          verbose = par.verbose,
-                                          use_files = par.use_files)
+                aod.meteo_data_by_station\
+                    (par.time_step, par.d1, par.d2, 
+                     par.stations, par.dir_path, par.fetch,
+                     par.verbose, par.use_files)
             print('Downloaded files', len(file_names))
         elif ans == '4':
             cfiles = aod.concatenate_files(par.time_step, par.dir_path,

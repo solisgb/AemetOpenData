@@ -769,7 +769,19 @@ class AemetOpenData():
 
 
     @staticmethod
-    def __check_fecth_values(fetch: str) -> bool:
+    def __check_fecth_value(fetch: str) -> bool:
+        """
+        Checks if fetch has a valid value
+
+        Parameters
+        ----------
+        fetch : content to validate 
+
+        Returns
+        -------
+        True if fetch has a valid value, False otherwise
+
+        """
         VALID_FETCH_VALUES = ('data', 'metadata', 'both')
         fetch = fetch.lower()
         if fetch not in VALID_FETCH_VALUES:
@@ -858,11 +870,9 @@ class AemetOpenData():
         bool: True if parameters have the right type
         """
             
-        variables = {'dir_path': dir_path, 'fetch': fetch}
-        for var_name, var_value in variables.items():
-            if not isinstance(var_value, str):
-                logging.append("Parameter {var_name}' must be str")
-                return False
+        params = {'dir_path': dir_path, 'fetch': fetch}
+        if not AemetOpenData.__check_params_type(params, str):
+            return False
  
         if type(d1) != type(d2):
             logging.append('types for d1 and d2 must be equal')
@@ -871,11 +881,9 @@ class AemetOpenData():
             logging.append('Incorrect type for d1 and d2')
             return False
         
-        variables = {'verbose': verbose, 'use_files': use_files}
-        for var_name, var_value in variables.items():
-            if not isinstance(var_value, bool):
-                logging.append("Parameter {var_name}' must be bool")
-                return False
+        params = {'verbose': verbose, 'use_files': use_files}
+        if not AemetOpenData.__check_params_type(params, bool):
+            return False
 
         return True
 
@@ -1036,16 +1044,40 @@ class AemetOpenData():
 
 
     @staticmethod
-    def __check_time_step_value(time_step: str):
+    def __check_time_step_value(time_step: str) -> bool:
+        """
+        Checks if the value of time_step is one of the valid values
 
+        Parameters
+        ----------
+        time_step : str to check its value
+
+        Returns
+        -------
+        True if time_step has a valid value, False otherwise.
+        """
         VALID_TIME_STEPS = ('day', 'month')
         if time_step not in VALID_TIME_STEPS:
             msg = ', '.join(VALID_TIME_STEPS)
-            raise ValueError(f'time_step not in {msg}')                    
+            logging.append(f'time_step not in {msg}')
+            return False
+        return True                    
 
 
     @staticmethod 
     def __check_params_type(params: dict, expected_type: type) -> bool:
+        """
+        Checks if the type of parameters is of the expected type
+
+        Parameters
+        ----------
+        params : Pairs key name of the parameter, value or the parameter 
+        expected_type : type to check
+
+        Returns
+        -------
+        True if params are of the expected type, otherwise False
+        """
         invalid_type = []
         invalid_sequence = []
         
@@ -1063,12 +1095,13 @@ class AemetOpenData():
     
         if invalid_type:
             invalid_params = ', '.join(invalid_type)
-            print('These parameters must be of type' +\
-                  f'{expected_type.__name__}: {invalid_params}')
+            logging.append('These parameters must be of type' +\
+                           f'{expected_type.__name__}: {invalid_params}')
         if invalid_sequence:
             invalid_params = ', '.join(invalid_sequence)
-            print('These sequences must have all its elements of type' +\
-                  f'{expected_type.__name__}: {invalid_params}')
+            logging.append('These sequences must have all its elements' + \
+                           ' of type' +\
+                           f'{expected_type.__name__}: {invalid_params}')
         if invalid_type or invalid_sequence:
             return False
         return True
@@ -1080,14 +1113,10 @@ class AemetOpenData():
             -> bool:
         """
         Check the parameter types of method meteo_data_by_station
-    
-        Raises
-        ------
-        TypeError
         
         Returns
         -------
-        False if some parameters don't have the required type
+        True if all parameters have the expected types, False otherwise
         """
         params = {'time_step': time_step, 'stations': stations, 
                   'dir_path': dir_path, 'fetch': fetch}
@@ -1149,34 +1178,67 @@ class AemetOpenData():
         if isinstance(stations, str):
             stations = (stations,)
             
-        file_names = []
         if not AemetOpenData.directory_exists(dir_path):
             logging.append(f'Directory {dir_path} must exists')
-            return file_names
+            return []
         dir_path = pathlib.Path(dir_path)
         
         if not AemetOpenData.__check_time_step_value(time_step):
             return []
-        if time_step == 'day':
-            dr = AemetOpenData.daily_ranges_get(d1, d2)
-        else:
-            dr = AemetOpenData.years_ranges_get(d1, d2)
         
-        if not dr:
-            logging.append('No elements in dr')
+        if time_step == 'day':
+            time_periods = AemetOpenData.daily_ranges_get(d1, d2)
+        else:
+            time_periods = AemetOpenData.years_ranges_get(d1, d2)
+        
+        if not time_periods:
+            logging.append('No elements in time_periods')
             return []
 
         if not AemetOpenData.__check_fecth_values(fetch):
             return []
+
+        if time_step == 'day':
+            url_template = 'https://opendata.aemet.es/opendata/api/valores/'+\
+                'climatologicos/diarios/datos/fechaini/'+\
+                    '{]}/fechafin/{}/estacion/{}'
+        else:
+            url_template = 'https://opendata.aemet.es/opendata/api/valores/'+\
+                'climatologicos/mensualesanuales/datos/anioini/'+\
+                    '{]}/aniofin/{}/estacion/{}'
+
+        if use_files:
+            saved_files = AemetOpenData.file_names_in_dir(dir_path, '*.csv')
+        else:
+            saved_files = []
         
-        #TODO
-        for df, fname in self.__request_meteo_data\
-            (dr, stations, time_step, dir_path, metadata, verbose):
-            if len(df) > 0:
-                file_path = dir_path.joinpath(fname)
-                df.to_csv(file_path, index=False)
-                file_names.append(fname)
-        return file_names
+        file_name_template = '{}_{}_{}_{}.csv'
+
+        downloaded_files = []
+        start_time = ScalarContainer(time())
+        for station1 in stations:
+        
+            for tp1 in time_periods:
+                
+                url = url_template.format(tp1[0], tp1[1], station1)
+    
+                ofile_names = \
+                    AemetOpenData.__set_output_file_names_with_template\
+                    (fetch, file_name_template, tp1, True)
+    
+                dd_status = self.__data_download_status\
+                    (ofile_names, saved_files, verbose)
+                for k, v in dd_status.items():
+                    if v == False:
+                        continue
+        
+                    if not self.__request_and_save_file\
+                        (url, k, ofile_names, dir_path, verbose, start_time):
+                        continue
+                
+                    downloaded_files.append(ofile_names[k])
+        
+        return downloaded_files
         
 
     @staticmethod 
@@ -1184,21 +1246,15 @@ class AemetOpenData():
         (time_step, dir_path, files2concat, files2exclude, ask_overwrite) \
             -> bool:
         """
-        Check the parameter types of method variables_clima_estacion
-    
-        Raises
-        ------
-        TypeError
+        Checks the parameters types of the method variables_clima_estacion
         
         Returns
         -------
-        None.
+        True if all parameters have the expected types.
         """
-        d = {'time_step': time_step, 'dir_path': dir_path}
-        for var, value in d.items():
-            if not isinstance(value, str):
-                logging.append(f'Parameter {var} must be of type str')
-                return False
+        params = {'time_step': time_step, 'dir_path': dir_path}
+        if not AemetOpenData.__check_params_type(params, str):
+            return False
 
         if not isinstance(ask_overwrite, bool):
             logging.append('Parameter ask_overwrite must be of type bool')
