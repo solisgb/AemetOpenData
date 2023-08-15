@@ -217,9 +217,9 @@ class AemetOpenData():
     def __shrink_ts_limits(d1: Union[int, date, datetime], 
                            d2: Union[int, date, datetime]) -> ():
         """
-        If the year of the lower date  is less than LOWEST_YEAR change the 
+        If the year of the lower date  is less than LOWEST_YEAR changes the 
             year to LOWEST_YEAR. If the year of the upper date is greater than
-            the current year, change it to this year
+            the current year, changes it to this year
         Parameters
         ----------
         d1 : Lower limit of a time series
@@ -276,7 +276,7 @@ class AemetOpenData():
     def daily_ranges_get(d1: Union[date, datetime], 
                          d2: Union[date, datetime], 
                          selected_stations: bool = True) \
-        -> ((str, str)):
+        -> [[str, str]]:
         """
         Let d1 and d2 be the lower and upper limits of a daily time series. It 
             generates a list of subperiods of equal length (except the last
@@ -313,11 +313,11 @@ class AemetOpenData():
             if diff > max_ndays:
                 du = cd + max_ndays
                 sdu = du.strftime('%Y-%m-%dT23:59:59UTC')
-                days_range.append((scd, sdu))
+                days_range.append([scd, sdu])
             else:
                 du = cd + diff
                 sdu = du.strftime('%Y-%m-%dT23:59:59UTC')
-                days_range.append((scd, sdu))
+                days_range.append([scd, sdu])
                 break
             cd = du + one_day
             if cd > today:
@@ -339,7 +339,7 @@ class AemetOpenData():
         
     @staticmethod
     def years_ranges_get(y1: Union[int, date, datetime], 
-                         y2: Union[int, date, datetime]) -> ((str, str)):
+                         y2: Union[int, date, datetime]) -> [[str, str]]:
         """
         Let d1 and d2 be the lower and upper limits of a time series with 
             yearly discretization. It generates a list of subperiods of equal
@@ -376,11 +376,11 @@ class AemetOpenData():
             if diff > max_years_station:
                 yu = cy + max_years_station
                 syu = str(yu)
-                years_range.append((scy, syu))
+                years_range.append([scy, syu])
             else:
                 yu = cy + diff
                 syu = str(yu)
-                years_range.append((scy, syu))
+                years_range.append([scy, syu])
                 break
             cy = yu + 1
         return years_range
@@ -680,6 +680,8 @@ class AemetOpenData():
                     (url, k, ofile_names, dir_path, verbose, start_time):
                     continue
             
+                downloaded_files.append(ofile_names[k])
+                
         return downloaded_files
         
 
@@ -741,7 +743,7 @@ class AemetOpenData():
             (d1, d2, dir_path, fetch, verbose, use_files):
             return []
 
-        if not AemetOpenData.__check_fecth_values(fetch):
+        if not AemetOpenData.__check_fecth_value(fetch):
             return []
 
         d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
@@ -754,10 +756,10 @@ class AemetOpenData():
 
         dr = AemetOpenData.daily_ranges_get(d1, d2, selected_stations=False)
         
-        for ofname1 in self.__request_meteo_data_all_stations\
-            (dr, dir_path, fetch, use_files, verbose):
-            ofile_names.append(ofname1)
-        return ofile_names
+        downloaded_files = self.__request_meteo_data_all_stations\
+            (dr, dir_path, fetch, use_files, verbose)
+
+        return downloaded_files
 
 
     @staticmethod
@@ -843,7 +845,7 @@ class AemetOpenData():
             return
         dir_path = pathlib.Path(dir_path)
 
-        if not AemetOpenData.__check_fecth_values(fetch):
+        if not AemetOpenData.__check_fecth_value(fetch):
             return
 
         if use_files:
@@ -1021,17 +1023,17 @@ class AemetOpenData():
             logging.append('No elements in time_periods')
             return []
 
-        if not AemetOpenData.__check_fecth_values(fetch):
+        if not AemetOpenData.__check_fecth_value(fetch):
             return []
 
         if time_step == 'day':
             url_template = 'https://opendata.aemet.es/opendata/api/valores/'+\
                 'climatologicos/diarios/datos/fechaini/'+\
-                    '{]}/fechafin/{}/estacion/{}'
+                    '{}/fechafin/{}/estacion/{}'
         else:
             url_template = 'https://opendata.aemet.es/opendata/api/valores/'+\
                 'climatologicos/mensualesanuales/datos/anioini/'+\
-                    '{]}/aniofin/{}/estacion/{}'
+                    '{}/aniofin/{}/estacion/{}'
 
         if use_files:
             saved_files = AemetOpenData.file_names_in_dir(dir_path, '*.csv')
@@ -1048,9 +1050,10 @@ class AemetOpenData():
                 
                 url = url_template.format(tp1[0], tp1[1], station1)
     
+                params = [station1] + tp1
                 ofile_names = \
                     AemetOpenData.__set_output_file_names_with_template\
-                    (fetch, file_name_template, tp1, True)
+                    (fetch, file_name_template, params, True)
     
                 dd_status = self.__data_download_status\
                     (ofile_names, saved_files, verbose)
@@ -1072,7 +1075,7 @@ class AemetOpenData():
         (time_step, dir_path, files2concat, files2exclude, ask_overwrite) \
             -> bool:
         """
-        Checks the parameters types of the method variables_clima_estacion
+        Checks the parameters types of the method concatenate_files
         
         Returns
         -------

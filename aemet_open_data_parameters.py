@@ -14,7 +14,7 @@ from datetime import date
 # To download characteristics of meteorological stations in Aemet OpenData
 #  we use the method meteo_stations. It has the following parameters:
     
-dir_path = '.\download\data_all_stations'  # files will be saved here
+dir_path = '.\download\data_selected_stations'  # files will be saved here
 fetch = 'both'  # 'data', 'metadata' or 'both'
 use_files = True  # prevents downloading files that have already been downloaded   
 verbose = True  # messages in screen
@@ -35,7 +35,7 @@ d2 = date(1985, 12, 31)  # end date
 # Specific parameters:
 
 time_step = 'day'  # 'day' or 'month'
-stations = ('7178I', '7002Y')  # list with station identifiers
+stations = ['7178I', '7031', '7031X']  # list with station identifiers
 
 
 # To concatenate the CSV files with the meteorolofical data downloaded using
