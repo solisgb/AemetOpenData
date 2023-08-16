@@ -7,6 +7,7 @@ Created on Wed Aug 16 11:19:26 2023
 import csv
 import pathlib
 import re
+import sqlite3
 
 import littleLogging as logging
 
@@ -19,10 +20,15 @@ class Concatenate_downloaded_files():
          'station1_day': r'^(?!stations)(.{1,})(_\d{8}T\d{6}UTC){2}_data\.csv$',
          'station1_month': r'^(?!stations)(.{1,})(_\d{4}){2}_data\.csv$',
          }
+    __DBNAME = \
+        {'stations_day': 'met_all_stations',
+         'station1_day': 'met_day_selected_stations',
+         'station1_month': 'met_month_selected_stations',
+         }        
 
     
     def __init__(self):
-        pass
+        self.dbname = None
 
             
     def concat(self, d_path: str, file_type: str) :
@@ -35,6 +41,9 @@ class Concatenate_downloaded_files():
         f_paths = self.__get_file_paths(dir_path, file_type)
         
         headers = self.__get_unique_ordered_headers(f_paths)
+        
+        if not self.__create_table(dir_path, file_type, headers):
+            return False
 
 
     def exists_dir_path(self, d_path: str) -> pathlib.Path:
@@ -82,15 +91,41 @@ class Concatenate_downloaded_files():
         all_headers = set()
     
         for file_path in file_paths:
-            with open(file_path, 'r') as csv_file:
+            with open(file_path, 'r', encoding='utf-8') as csv_file:
                 reader = csv.reader(csv_file)
                 headers = next(reader, None)
                 if headers:
                     all_headers.update(headers)
     
         sorted_headers = sorted(all_headers)
+        
         return sorted_headers
 
+
+    def __create_table(self, d_path: pathlib.Path, file_type: str,
+                       headers: [str]) -> bool:
+
+        create_table_template = "create table {} ( {} );"
+        column_template = "{} text"        
+        
+        dbname = self.__DBNAME[file_type]+'.db'
+        dbpath = d_path.joinpath(dbname)
+        if dbpath.exists() and dbpath.is_file():
+            ans = input(f'\n{dbpath}\nalready exists, overwrite (y/n)?: ')
+            if ans.lower() != 'y':
+                return False
+
+        columns = [column_template.format(h1) for h1 in headers]
+        columns = ', '.join(columns)
+
+        stm = create_table_template.format(dbpath, columns)
+        
+        conn = sqlite3.connect(dbpath)
+        cur = conn.cursor()
+        cur.execute(stm)
+        conn.close()
+        self.dbname = dbpath
+        return True
 
 
 

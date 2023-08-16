@@ -24,7 +24,8 @@ if __name__ == "__main__":
         
         dpath = './download'
         ftype = 'stations_day'
-        obj = Concatenate_downloaded_files.concat(dpath, ftype)
+        cd = Concatenate_downloaded_files()
+        cd.concat(dpath, ftype)
 
     except ValueError:
         msg = traceback.format_exc()
