@@ -3,9 +3,8 @@
 It downloads daily and monthly meteorological data from Aemet OpenData (https://www.aemet.es/es/datos_abiertos/AEMET_OpenData).
 
 Requirements
-* Python
-* Pandas
-* Jupyter or Jupyter lab (optional)
+* Python 3.11 >= (previous versions have not been tested)
+* Jupyter or Jupyter Lab (optional)
 
 How to use it
 * Create a directory, for example, AemetOpenData, to download the files.
