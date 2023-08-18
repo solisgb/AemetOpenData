@@ -81,6 +81,8 @@ class AemetOpenData():
     #  time indicated below has elapsed.  
     __MIN_SECS_NOT_VERBOSE = 60
     
+    __NONE_AS_STR = ''
+    
     
     def __init__(self, file_name: str='apikey.txt'):
         """
@@ -482,8 +484,65 @@ class AemetOpenData():
         return request_data
 
 
+    @staticmethod
+    def __get_dict_template(ld: [{}]) -> {}:
+        """
+        Extracts a ordered list of unique keys from ls. Then it sets
+            a dictionary with these unique keys with a default unique scalar
+            value 
+
+        Parameters
+        ----------
+        ld : [{}], Each dict has its own list of keys, some are common 
+            between dictionaries
+
+        Returns
+        -------
+        new_dict : Dictionary with keys in ls and a scalar defaulto value
+
+        """
+        
+        default_value = AemetOpenData.__NONE_AS_STR
+        unique_keys = set()
+        
+        for d in ld:
+            unique_keys.update(d.keys())
+        
+        unique_key_list = list(unique_keys)
+        unique_key_list.sort()
+        
+        new_dict = {key: default_value for key in unique_key_list}
+        return new_dict
+
+
+    @staticmethod
+    def ldicts_2_ltuples_eq_len(dict_template: {}, data:[{}]):
+        """
+        Given a list of dicts and each dict in the list has its own keys,
+            some of them can be common between dictionaries, it yields tuples
+            of eq length with a default value __NONE_AS_STR instead of
+            None
+
+        Parameters
+        ----------
+        dict_template : dict with all keys in data
+        data : list of dicts with data
+
+        Yields
+        ------
+        values in aech dict of data with null values as a default value
+
+        """
+        for row in data:
+            base = dict_template.copy()
+            for k, v in row.items():
+                base[k] = v
+            yield tuple(base.values())
+
+
     def __save_to_csv\
-        (self, csv_file_path: str, data: Union[dict, __list_dict]) -> None:
+        (self, csv_file_path: str, data: Union[dict, __list_dict],
+         mold: {}= {}) -> None:
         """
         Save to a csv file the response to a request to the Aemet server 
             previously converted to json format. The response can be a list
@@ -515,10 +574,13 @@ class AemetOpenData():
             csvwriter = csv.writer(csvfile)
         
             if isinstance(data, list):
-                header = data[0].keys()
+                dict_template = self.__get_dict_template(data)
+                new_data = [row for row in \
+                    self.ldicts_2_ltuples_eq_len(dict_template, data)]
+                
+                header = dict_template.keys()
                 csvwriter.writerow(header)
-                for item in data:
-                    csvwriter.writerow(item.values())
+                csvwriter.writerows(new_data)
             else:
                 if 'campos' in data:
                     header = data['campos'][0].keys()
@@ -668,7 +730,7 @@ class AemetOpenData():
             url = url_template.format(dr1[0], dr1[1])
 
             ofile_names = AemetOpenData.__set_output_file_names_with_template\
-                (fetch, file_name_template, list(dr1), True)
+                (fetch, file_name_template, dr1, True)
 
             dd_status = self.__data_download_status\
                 (ofile_names, saved_files, verbose)
@@ -1172,7 +1234,8 @@ class AemetOpenData():
             file_paths = d_path.glob('*.csv')
             
             REG_PATTERNS = {'day':  r'(_\d{8}T\d{6}UTC|\.csv)', 
-                            'month': r'(_\d{4}_\d{4}|\.csv)'}
+                            'month': r'(_\d{4}_\d{4}|\.csv)',
+                            'day0':  r'stations.\.csv)'}
     
             first = True
             for f1 in file_paths:
