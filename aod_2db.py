@@ -14,7 +14,26 @@ import littleLogging as logging
 
 
 class AOD_2db():
-
+    """
+    Insert the meteorological data from Aemet OpenData that has been downloaded
+        as csv files into a sqlite3 database with a unique table. 
+    For each type of file, a database with a single table is created. 
+        Therefore, each table contains a mteorological time series. 
+    The name of the database is determined by the type of data to be inserted
+        and for each type the name is always the same.
+    Table structure:
+        1) Table does not have a primary key.
+        2) Columns names. They Are the the headers of the downloaded csv files
+        3) Columns types. Is always TEXT (str). 
+    Table contents:
+        1) The inserted data is the same as the downloaded data, no formatting
+        transformation is performed.
+        2) If multiple download sessions of the same data type are performed
+        with overlapping date ranges and ther are saved in the same directory,
+        the data files contain repeated data.
+        This repeated data will be inserted as-is into the table and therefore
+        the table will contain repeated data. 
+    """
 
     __FILE_PATTERNS = \
         {'stations_day': r'^stations(_\d{8}T\d{6}UTC){2}_data\.csv$',
@@ -34,28 +53,130 @@ class AOD_2db():
     __MAX_ERRORS_2STOP_INSERTING = 3
 
     
-    def __init__(self):
-        # sqlite db
-        self.dbpath: pathlib.Path = None
-        self.table_name: str = None
+    def __init__(self, d_path: str, file_type: str):
+        """
+        Parameters
+        ----------
+        d_path (str). Directory path where files has been saved and database 
+            will be created
+        file_type (str). Type of files to insert in the database, codified as
+            the keys of the dictionary __FILE_PATTERNS
 
-            
-    def to_db(self, d_path: str, file_type: str) :
+        Returns
+        -------
+        self
+        """
         
         dir_path = AOD_2db.exists_dir_path(d_path)
         
         par = {'file_type': file_type}
-        AOD_2db.__valid_value(par, self.__FILE_PATTERNS.keys())
+        AOD_2db.__valid_value(par, AOD_2db.__FILE_PATTERNS.keys())
         
-        f_paths = AOD_2db.__get_file_paths(dir_path, file_type)
+        self.dir_path: pathlib.Path = dir_path
+        self.file_type: str = file_type
+        
+        self.__dbpath: pathlib.Path = None
+        self.table_name: str = None
+
+
+    @property
+    def dbpath(self):
+        return self.__dbpath
+
+
+    @dbpath.setter
+    def dbpath(self, dbpath: str):
+        dbpath = pathlib.Path(dbpath)
+        if not dbpath.exists() or not dbpath.is_file():
+            msg = f"No {dbpath} exists"
+            logging.append(msg)
+            raise ValueError(msg)
+        self.__dbpath = dbpath
+
+            
+    def to_db(self) :
+        """
+        Inserts the data in a table of a sqlite3 db
+
+        Returns
+        -------
+        True if the task ends OK
+        """
+        
+        f_paths = self.__get_file_paths()
+        if not f_paths:
+            logging.append('No files downloaded from' +\
+                           f' Aemet OpenData in {self.dbpath}')
+            return False
         
         headers = AOD_2db.__get_unique_ordered_headers(f_paths)
         
-        if not self.__create_table(dir_path, file_type, headers):
+        if not self.__create_table(headers):
             return False
         
         if not self.__insert_data(f_paths):
             return False
+        
+        return True
+
+
+    def to_csv(self, od_path: str, of_name: str, unique_rows: bool=True, 
+               decimal: str ='.') -> bool:
+        """
+        Export the unique table db to a csv file
+        If you export the table in the same session you have created it, this
+            is the table to export. You can also export a previous created
+            database
+
+        Parameters
+        ----------
+        od_path (str). Directory path for output
+        of_name (str). File name for output
+        unique_rows (bool), optional. Duplicated rows are/not considered.
+            The default is True.
+        decimal (str), optional. Decimal separator (comma or point). The 
+            default is '.'.
+
+        Returns
+        -------
+        bool. True if the task ends ok
+
+        """
+        
+        try:
+            od_path = AOD_2db.exists_dir_path(od_path)
+        except:
+            return False
+        dbpath = self.__get_file_path(of_name)
+        if dbpath is None:
+            return False
+        table_name = AOD_2db.__get_table_name(dbpath)
+        
+        
+        
+        return True
+
+
+    @staticmethod
+    def __get_table_name(dbpath: pathlib.Lib):
+        
+        SELECT = "select name from sqlite_master where type='table';"
+        
+        try:
+            conn = sqlite3.connect(dbpath)
+            cur = conn.cursor()
+            cur.execute(SELECT)
+            table_name = cur.fetchone()
+        except sqlite3.Error as err:
+            msg = f'Sqlite error {err}' 
+            logging.append(msg)
+            return None 
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+            return table_name
 
 
     @staticmethod
@@ -80,12 +201,11 @@ class AOD_2db():
             raise ValueError(msg)
 
 
-    @staticmethod
-    def __get_file_paths(d_path: pathlib.Path, file_type: str) -> [] :
-        f_paths = d_path.glob('*_data.csv')
+    def __get_file_paths(self) -> [] :
+        f_paths = self.dir_path.glob('*_data.csv')
         filtered_names = \
             [fp1 for fp1 in f_paths if \
-             re.match(AOD_2db.__FILE_PATTERNS[file_type], fp1.name)]
+             re.match(AOD_2db.__FILE_PATTERNS[self.file_type], fp1.name)]
         return filtered_names
 
 
@@ -118,25 +238,23 @@ class AOD_2db():
         return sorted_headers
 
 
-    @staticmethod
-    def __get_dbpath(d_path: pathlib.Path, dbname: str) -> pathlib.Path:
+    def __get_file_path(self, file_name: str) -> pathlib.Path:
 
-        if not pathlib.Path(d_path).is_absolute():
+        if not pathlib.Path(self.dir_path).is_absolute():
             cwd = os.getcwd()
-            d_path = pathlib.Path(cwd).resolve() / d_path        
-        dbpath = d_path.joinpath(dbname)
-        if dbpath.exists() and dbpath.is_file():
-            ans = input(f'\n{dbpath}\nalready exists, overwrite (y/n)?: ')
+            self.dir_path = pathlib.Path(cwd).resolve() / self.dir_path        
+        file_path = self.dir_path.joinpath(file_name)
+        if file_path.exists() and file_path.is_file():
+            ans = input(f'\n{file_path}\nalready exists, overwrite (y/n)?: ')
             if ans.lower() == 'y':
                 return dbpath
             else:
                 return None
         else:
-            return dbpath
+            return file_path
 
 
-    def __create_table(self, d_path: pathlib.Path, file_type: str,
-                       headers: [str]) -> bool:
+    def __create_table(self, headers: [str]) -> bool:
 
         result = True
         
@@ -144,12 +262,12 @@ class AOD_2db():
         create_table_template = "create table if not exists '{}' ( {} );"
         column_template = "{} text"
 
-        dbname = self.__DBNAME[file_type]
-        dbpath = AOD_2db.__get_dbpath(d_path, dbname)
+        dbname = self.__DBNAME[self.file_type]
+        dbpath = self.__get_file_path(dbname)
         if dbpath is None:
             msg = f'The file {dbname} has not been created'
             return False
-        table_name = self.__DBTABLE[file_type]
+        table_name = AOD_2db.__DBTABLE[self.file_type]
 
         columns = [column_template.format(h1) for h1 in headers]
         columns = ', '.join(columns)
@@ -218,6 +336,9 @@ class AOD_2db():
                 msg = f'File {fp1.name}\nError {e}'
                 logging.append(msg)
                 return False
+        msg = '\nPrevious downloaded files has been imported to' +\
+            f' the sqlite db\n{self.dbpath}'
+        logging.append(msg)
         return True
 
 
