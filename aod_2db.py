@@ -9,6 +9,7 @@ import pathlib
 import os
 import re
 import sqlite3
+from typing import Union
 
 import littleLogging as logging
 
@@ -18,7 +19,7 @@ class AOD_2db():
     Insert the meteorological data from Aemet OpenData that has been downloaded
         as csv files into a sqlite3 database with a unique table. 
     For each type of file, a database with a single table is created. 
-        Therefore, each table contains a mteorological time series. 
+        Therefore, each table contains a meteorological time series. 
     The name of the database is determined by the type of data to be inserted
         and for each type the name is always the same.
     Table structure:
@@ -68,6 +69,7 @@ class AOD_2db():
         """
         
         dir_path = AOD_2db.exists_dir_path(d_path)
+        dir_path = AOD_2db.__get_absolute_path(dir_path)
         
         par = {'file_type': file_type}
         AOD_2db.__valid_value(par, AOD_2db.__FILE_PATTERNS.keys())
@@ -86,17 +88,23 @@ class AOD_2db():
 
     @dbpath.setter
     def dbpath(self, dbpath: str):
-        dbpath = pathlib.Path(dbpath)
+        dbpath = AOD_2db.__get_absolute_path(dbpath)
         if not dbpath.exists() or not dbpath.is_file():
             msg = f"No {dbpath} exists"
             logging.append(msg)
             raise ValueError(msg)
         self.__dbpath = dbpath
 
+
+    def get_dbpath(self) -> pathlib.Path:
+        dbname = self.__DBNAME[self.file_type]
+        dbpath = self.dir_path.joinpah(dbname)
+        return dbpath 
+
             
     def to_db(self) :
         """
-        Inserts the data in a table of a sqlite3 db
+        Inserts the data in a database of type sqlite3
 
         Returns
         -------
@@ -120,22 +128,18 @@ class AOD_2db():
         return True
 
 
-    def to_csv(self, od_path: str, of_name: str, unique_rows: bool=True, 
-               decimal: str ='.') -> bool:
+    def to_csv(self, od_path: str, of_name: str) -> bool:
         """
         Export the unique table db to a csv file
         If you export the table in the same session you have created it, this
-            is the table to export. You can also export a previous created
-            database
+            is the table to export. 
+        If you want to dump a previous created database, you must first
+            set the value of self.dbpath
 
         Parameters
         ----------
         od_path (str). Directory path for output
         of_name (str). File name for output
-        unique_rows (bool), optional. Duplicated rows are/not considered.
-            The default is True.
-        decimal (str), optional. Decimal separator (comma or point). The 
-            default is '.'.
 
         Returns
         -------
@@ -143,22 +147,74 @@ class AOD_2db():
 
         """
         
+        select_template = 'select * from {}'
+
+        if self.dbpath is None:
+            msg = 'self.dbpath is not set'
+            logging.append(msg)
+            return False
+        
+        table_name = AOD_2db.__get_table_name(self.dbpath)
+        select = select_template.format(table_name) 
+        column_names = self.__get_columns_names(table_name)
+        if not column_names:
+            return False
+
+        d_path = AOD_2db.__get_absolute_path(od_path)
+        f_path = d_path.joinpath(of_name) 
+
         try:
-            od_path = AOD_2db.exists_dir_path(od_path)
-        except:
+            conn = sqlite3.connect(self.dbpath)
+            cur = conn.cursor()
+            cur.execute(select)
+            data = cur.fetchall()
+            conn.close()
+        except sqlite3.Error as err:
+            msg = f'Sqlite error {err}' 
+            logging.append(msg)
+            try:
+                conn.close()
+            except:
+                pass        
             return False
-        dbpath = self.__get_file_path(of_name)
-        if dbpath is None:
-            return False
-        table_name = AOD_2db.__get_table_name(dbpath)
         
-        
+        with open(f_path, 'w', newline='', encoding='utf-8') as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(column_names)
+            csv_writer.writerows(data)
+        msg = f'Data dumped to\n{f_path}'
+        logging.append(msg)
         
         return True
 
 
+    def __get_columns_names(self, table_name: str) -> [str]:
+        
+        select_template = "select * from {}"
+        columns = []
+        
+        try:
+            select = select_template.format(table_name)
+            conn = sqlite3.connect(self.dbpath)
+            cur = conn.cursor()
+            data = cur.execute(select)
+            columns = [col1 for col1 in data.description]
+        except sqlite3.Error as err:
+            msg = f'Sqlite error {err}' 
+            logging.append(msg)
+        except Exception as err:
+            msg = f'Error {err}' 
+            logging.append(msg)
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+            return columns       
+
+
     @staticmethod
-    def __get_table_name(dbpath: pathlib.Lib):
+    def __get_table_name(dbpath: pathlib.Path):
         
         SELECT = "select name from sqlite_master where type='table';"
         
@@ -167,16 +223,15 @@ class AOD_2db():
             cur = conn.cursor()
             cur.execute(SELECT)
             table_name = cur.fetchone()
+            return table_name
         except sqlite3.Error as err:
             msg = f'Sqlite error {err}' 
             logging.append(msg)
-            return None 
-        finally:
             try:
                 conn.close()
             except:
                 pass
-            return table_name
+            return None 
 
 
     @staticmethod
@@ -238,16 +293,26 @@ class AOD_2db():
         return sorted_headers
 
 
+    @staticmethod
+    def __get_absolute_path(path: Union[str, pathlib.Path]) -> pathlib.Path:
+        if not isinstance(path, pathlib.Path):
+            path = str(path)
+            path = pathlib.Path(path)
+        if not pathlib.Path(path).is_absolute():
+            cwd = os.getcwd()
+            apath = pathlib.Path(cwd).resolve() / path
+            return apath
+        else:
+            return path                
+
+
     def __get_file_path(self, file_name: str) -> pathlib.Path:
 
-        if not pathlib.Path(self.dir_path).is_absolute():
-            cwd = os.getcwd()
-            self.dir_path = pathlib.Path(cwd).resolve() / self.dir_path        
         file_path = self.dir_path.joinpath(file_name)
         if file_path.exists() and file_path.is_file():
             ans = input(f'\n{file_path}\nalready exists, overwrite (y/n)?: ')
             if ans.lower() == 'y':
-                return dbpath
+                return file_path
             else:
                 return None
         else:
