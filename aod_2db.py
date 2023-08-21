@@ -96,9 +96,9 @@ class AOD_2db():
         self.__dbpath = dbpath
 
 
-    def get_dbpath(self) -> pathlib.Path:
+    def get_default_dbpath(self) -> pathlib.Path:
         dbname = self.__DBNAME[self.file_type]
-        dbpath = self.dir_path.joinpah(dbname)
+        dbpath = self.dir_path.joinpath(dbname)
         return dbpath 
 
             
@@ -128,18 +128,9 @@ class AOD_2db():
         return True
 
 
-    def to_csv(self, od_path: str, of_name: str) -> bool:
+    def to_csv(self) -> bool:
         """
         Export the unique table db to a csv file
-        If you export the table in the same session you have created it, this
-            is the table to export. 
-        If you want to dump a previous created database, you must first
-            set the value of self.dbpath
-
-        Parameters
-        ----------
-        od_path (str). Directory path for output
-        of_name (str). File name for output
 
         Returns
         -------
@@ -149,22 +140,25 @@ class AOD_2db():
         
         select_template = 'select * from {}'
 
-        if self.dbpath is None:
-            msg = 'self.dbpath is not set'
-            logging.append(msg)
+        dbpath = self.get_default_dbpath()
+        if not dbpath.exists():
+            logging.append(f'{dbpath} does not exists')
             return False
         
-        table_name = AOD_2db.__get_table_name(self.dbpath)
+        csvpath = dbpath.with_suffix('.csv')
+        if csvpath.exists():
+            ans = input(f'\n{csvpath} exists, continue (y/n): ? ')
+            if ans.lower() != 'y':
+                return False            
+        
+        table_name = AOD_2db.__get_table_name(dbpath)
         select = select_template.format(table_name) 
-        column_names = self.__get_columns_names(table_name)
+        column_names = self.__get_columns_names(dbpath, table_name)
         if not column_names:
             return False
 
-        d_path = AOD_2db.__get_absolute_path(od_path)
-        f_path = d_path.joinpath(of_name) 
-
         try:
-            conn = sqlite3.connect(self.dbpath)
+            conn = sqlite3.connect(dbpath)
             cur = conn.cursor()
             cur.execute(select)
             data = cur.fetchall()
@@ -178,33 +172,35 @@ class AOD_2db():
                 pass        
             return False
         
-        with open(f_path, 'w', newline='', encoding='utf-8') as csv_file:
+        with open(csvpath, 'w', newline='', encoding='utf-8') as csv_file:
             csv_writer = csv.writer(csv_file)
             csv_writer.writerow(column_names)
             csv_writer.writerows(data)
-        msg = f'Data dumped to\n{f_path}'
+        msg = f'Data dumped to\n{csvpath}'
         logging.append(msg)
         
         return True
 
 
-    def __get_columns_names(self, table_name: str) -> [str]:
+    @staticmethod
+    def __get_columns_names(dbpath:pathlib.Path , table_name: str) -> [str]:
         
         select_template = "select * from {}"
         columns = []
         
         try:
             select = select_template.format(table_name)
-            conn = sqlite3.connect(self.dbpath)
+            conn = sqlite3.connect(dbpath)
             cur = conn.cursor()
             data = cur.execute(select)
-            columns = [col1 for col1 in data.description]
+            columns = [col1[0] for col1 in data.description]
         except sqlite3.Error as err:
             msg = f'Sqlite error {err}' 
             logging.append(msg)
         except Exception as err:
             msg = f'Error {err}' 
             logging.append(msg)
+            return []
         finally:
             try:
                 conn.close()
@@ -223,7 +219,7 @@ class AOD_2db():
             cur = conn.cursor()
             cur.execute(SELECT)
             table_name = cur.fetchone()
-            return table_name
+            return table_name[0]
         except sqlite3.Error as err:
             msg = f'Sqlite error {err}' 
             logging.append(msg)

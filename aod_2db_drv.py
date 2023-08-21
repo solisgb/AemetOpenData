@@ -25,8 +25,10 @@ if __name__ == "__main__":
         dpath = './download'
         ftype = 'stations_day'
         a2db = AOD_2db(dpath, ftype)
-        if not a2db.to_db():
-            print('Attemp failed')
+        # if not a2db.to_db():
+        #     print('Attemp failed')
+        a2db.to_csv()
+        
         
     except ValueError:
         msg = traceback.format_exc()
