@@ -11,6 +11,7 @@ try:
     
     from aemet_open_data import AemetOpenData
     import aemet_open_data_parameters as par 
+    from aod_2db import AOD_2db
     import littleLogging as logging
 except ImportError as e:
     print( getattr(e, 'message', repr(e)))
@@ -51,7 +52,7 @@ if __name__ == "__main__":
         print('1. Characteristic of the meteorological stations')
         print('2. Daily data from all meteorological stations')
         print(f'3. {adv} data of selected meteorological stations')
-        print('4. Concatenate previously downloaded csv files ')
+        print('4. Export to Sqlite db previously downloaded csv files ')
         ans = input\
             ('\nWrite the number of the option or any other key to quit: ')
         print('')
@@ -74,13 +75,11 @@ if __name__ == "__main__":
                      par.verbose, par.use_files)
             print('Downloaded files', len(file_names))
         elif ans == '4':
-            cfiles = aod.concatenate_files(par.time_step, par.dir_path,
-                                           par.files2concat,
-                                           par.files2exclude, 
-                                           par.ask_overwrite)            
-            print('Concatenated files', len(cfiles))
-            for f1 in cfiles: 
-                print(cfiles)
+            a2db = AOD_2db(par.dir_path, par.ftype)
+            if not a2db.to_db():
+                print('Attemp failed')
+            else:
+                a2db.to_csv()
         else:
             print('Not an action option selected')
 

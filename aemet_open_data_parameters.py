@@ -14,7 +14,7 @@ from datetime import date
 # To download characteristics of meteorological stations in Aemet OpenData
 #  we use the method meteo_stations. It has the following parameters:
     
-dir_path = '.\download\data_selected_stations'  # files will be saved here
+dir_path = './download/data_selected_stations'  # files will be saved here
 fetch = 'both'  # 'data', 'metadata' or 'both'
 use_files = True  # prevents downloading files that have already been downloaded   
 verbose = True  # messages in screen
@@ -38,13 +38,17 @@ time_step = 'day'  # 'day' or 'month'
 stations = ['7178I', '7031', '7031X']  # list with station identifiers
 
 
-# To concatenate the CSV files with the meteorolofical data downloaded using
-#  meteo_data_all_stations or data_meteo_stations, we use the method
-#  concatenate_files. Specific parameters:
- 
-files2concat = []  # if you want to concatenate some files only
-files2exclude = []  # if yoy want to exclude some files
-ask_overwrite = True  # if the final file already exists ask before overwriting 
-        
+# To save csv files to Sqlite db and optionally to a single csv we use the
+#  method AOP_2db.to_db
+# Specific parameters:
+
+# ftype of request to Aemet: 
+#    'stations_day'. Daily meteorological data from all stations
+#    'station1_day'. Daily meteorological data from selected stations
+#    'station1_month'. Monthly meteorological data from selected stations
+
+ftype = 'stations_day'
+
+
 
         

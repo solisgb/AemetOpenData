@@ -127,6 +127,32 @@ class AOD_2db():
         
         return True
 
+            
+    def to_aod_db(self) :
+        """
+        Inserts the data in a database of type sqlite3
+
+        Returns
+        -------
+        True if the task ends OK
+        """
+        
+        f_paths = self.__get_file_paths()
+        if not f_paths:
+            logging.append('No files downloaded from' +\
+                           f' Aemet OpenData in {self.dbpath}')
+            return False
+        
+        headers = AOD_2db.__get_unique_ordered_headers(f_paths)
+        
+        if not self.__create_table_with_metadata(headers):
+            return False
+        
+        if not self.__insert_data(f_paths):
+            return False
+        
+        return True
+
 
     def to_csv(self) -> bool:
         """
@@ -336,19 +362,22 @@ class AOD_2db():
         stm0 = drop_table_template.format(table_name)
         stm = create_table_template.format(table_name, columns)
         
-        conn = sqlite3.connect(dbpath)
-        cur = conn.cursor()
         try:
+            conn = sqlite3.connect(dbpath)
+            cur = conn.cursor()
             cur.execute(stm0)
             cur.execute(stm)
+            self.dbpath = dbpath
+            self.table_name = table_name
         except Exception as err:
             result = False
             msg = f'Error creating table {dbpath.name}\n{err}'
             logging.append(msg)
+            try:
+                conn.close()
+            except:
+                pass
         finally:
-            conn.close()
-            self.dbpath = dbpath
-            self.table_name = table_name
             return result
 
 
