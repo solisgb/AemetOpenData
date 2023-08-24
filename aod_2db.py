@@ -102,9 +102,14 @@ class AOD_2db():
         return dbpath 
 
             
-    def to_db(self) :
+    def to_db(self, point_dec_sep: bool=False) :
         """
         Inserts the data in a database of type sqlite3
+        
+        Parameters
+        ----------
+        point_dec_sep (bool). If True point will be the decimal separator,
+            otherwise comma
 
         Returns
         -------
@@ -122,36 +127,50 @@ class AOD_2db():
         if not self.__create_table(headers):
             return False
         
-        if not self.__insert_data(f_paths):
+        if not self.__insert_data(f_paths, point_dec_sep):
             return False
         
         return True
 
-            
-    def to_aod_db(self) :
+
+    def columns_from_metadata(self) -> {}:
         """
-        Inserts the data in a database of type sqlite3
+        Reads the metadata files and returns the characteristics of the columns
+            as a dictionary having the header id as the key 
 
         Returns
         -------
-        True if the task ends OK
+        column characteristics as a dictionary
+
         """
         
-        f_paths = self.__get_file_paths()
-        if not f_paths:
-            logging.append('No files downloaded from' +\
-                           f' Aemet OpenData in {self.dbpath}')
-            return False
+        file_pattern = \
+            AOD_2db.__FILE_PATTERNS[self.file_type].replace('_data',
+                                                            '_metadata')
+        f_paths = self.dir_path.glob('*_metadata.csv')
+        f_paths_filtered = \
+            [fp1 for fp1 in f_paths if re.match(file_pattern, fp1.name)]        
+        if not f_paths_filtered:
+            logging.append('No matadata files of type'
+                           f' {self.file_type} in \n{self.dir_path}')
+            return {}
         
-        headers = AOD_2db.__get_unique_ordered_headers(f_paths)
+        rows_set = set()
+        for file in f_paths_filtered:
+            with open(file, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    rows_set.add((row['id'], row['descripcion'],
+                                  row['tipo_datos'], row['requerido']))
         
-        if not self.__create_table_with_metadata(headers):
-            return False
-        
-        if not self.__insert_data(f_paths):
-            return False
-        
-        return True
+        # Converting the set to a dictionary
+        columns = {}
+        for element in rows_set:
+            key = element[0]  # First sub-element as the key
+            value = list(element[1:])  # Rest of the sub-elements as a list
+            columns[key] = value
+
+        return columns
 
 
     def to_csv(self) -> bool:
@@ -430,5 +449,3 @@ class AOD_2db():
             f' the sqlite db\n{self.dbpath}'
         logging.append(msg)
         return True
-
-
