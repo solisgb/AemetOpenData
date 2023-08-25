@@ -130,6 +130,12 @@ class AOD_2db():
         if not self.__insert_data(f_paths, point_dec_sep):
             return False
         
+        if point_dec_sep:
+            sep = '.'  
+        else:
+            sep = ','
+        self.update_decimal_separator(sep)
+        
         return True
 
 
@@ -449,3 +455,68 @@ class AOD_2db():
             f' the sqlite db\n{self.dbpath}'
         logging.append(msg)
         return True
+
+
+    def update_decimal_separator(self, sep: str) -> bool:
+        """
+        As of the columns in the table of the database are str, I can replace
+            the decimal separator using sql update
+        The columns to be updated are selected from metadata of the downloaded
+            csv files
+
+        Parameters
+        ----------
+        sep (str). A character in ('.', ',') 
+
+        Returns
+        -------
+        bool. True if operation ends ok
+
+        """
+        
+        if sep not in ('.', ','):
+            logging.append('Only "." or "," are allowd')
+            return False
+        if sep == '.':
+            sep0 = ','
+        else:
+            sep0 = '.'
+        
+        stm_template = "update {} set {}"
+        col_replace_template = "{} = replace({}, {}, {});"
+
+        dbpath = self.get_default_dbpath()
+        if not dbpath.exists() or not dbpath.is_file():
+            logging.append(f"No {dbpath} exists")       
+            return False
+        
+        table_name = AOD_2db.__DBTABLE[self.file_type]
+        
+        columns = self.columns_from_metadata()
+        selected_cols = [k for k, v in columns.items() if v[1] == 'float']
+        if not selected_cols:
+            logging.append('Not columns of type float in metadata')
+            return False
+        cols_set = [col_replace_template.format(sc1, sc1, sep0, sep) \
+                    for sc1 in selected_cols]
+        cols_ready = ', '.join(cols_set)
+        stm = stm_template.format(table_name, cols_ready)
+        
+        try:
+            conn = sqlite3.connect(dbpath)
+            cur = conn.cursor()            
+            cur.execute(stm)
+            conn.commit()
+            conn.close()
+            a = ', '.join(selected_cols)
+            print(f'Updated decimal separator in columns: {a}')
+            return True
+        except Exception as err:
+            msg = f'Error updating the table {table_name}\n{err}'
+            logging.append(msg)
+            try:
+                conn.close()
+            except:
+                pass
+            return False
+        
