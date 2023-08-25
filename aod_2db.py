@@ -36,6 +36,7 @@ class AOD_2db():
         the table will contain repeated data. 
     """
 
+    # warning, don't change key names
     __FILE_PATTERNS = \
         {'stations_day': r'^stations(_\d{8}T\d{6}UTC){2}_data\.csv$',
          'station1_day': r'^(?!stations)(.{1,})(_\d{8}T\d{6}UTC){2}_data\.csv$',
@@ -96,6 +97,17 @@ class AOD_2db():
         self.__dbpath = dbpath
 
 
+    def is_daily_file_type(self):
+        if 'day' in self.file_type:
+            return True
+        elif 'month' in self.file_type:
+            return False
+        else:
+            msg = f'File_type ({self.file_type})does not follow the '+\
+                'required name pattern' 
+            raise ValueError(msg)
+
+
     def get_default_dbpath(self) -> pathlib.Path:
         dbname = self.__DBNAME[self.file_type]
         dbpath = self.dir_path.joinpath(dbname)
@@ -130,11 +142,9 @@ class AOD_2db():
         if not self.__insert_data(f_paths, point_dec_sep):
             return False
         
-        if point_dec_sep:
-            sep = '.'  
-        else:
-            sep = ','
-        self.update_decimal_separator(sep)
+        if point_dec_sep and self.is_daily_file_type():
+            if not self.update_decimal_separator('.'):
+                return False
         
         return True
 
@@ -198,7 +208,7 @@ class AOD_2db():
         
         csvpath = dbpath.with_suffix('.csv')
         if csvpath.exists():
-            ans = input(f'\n{csvpath} exists, continue (y/n): ? ')
+            ans = input(f'\n{csvpath} exists, overwrite (y/n): ? ')
             if ans.lower() != 'y':
                 return False            
         
@@ -482,8 +492,8 @@ class AOD_2db():
         else:
             sep0 = '.'
         
-        stm_template = "update {} set {}"
-        col_replace_template = "{} = replace({}, {}, {});"
+        stm_template = "update {} set {};"
+        col_replace_template = "{} = replace({}, '{}', '{}')"
 
         dbpath = self.get_default_dbpath()
         if not dbpath.exists() or not dbpath.is_file():
@@ -509,7 +519,7 @@ class AOD_2db():
             conn.commit()
             conn.close()
             a = ', '.join(selected_cols)
-            print(f'Updated decimal separator in columns: {a}')
+            print(f'Updated decimal separator as "{sep}" in columns: {a}')
             return True
         except Exception as err:
             msg = f'Error updating the table {table_name}\n{err}'

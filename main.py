@@ -78,6 +78,7 @@ if __name__ == "__main__":
             a2db = AOD_2db(par.dir_path, par.ftype)
             if not a2db.to_db(par.point_dec_sep):
                 print('No database has been created')
+                raise SystemExit(0)
             else:
                 a2db.to_csv()
         else:
