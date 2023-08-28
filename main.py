@@ -38,7 +38,7 @@ if __name__ == "__main__":
         print('Parameters')
         for nv1 in nv:    
             print(f"'{nv1[0]}': {nv1[1]}")
-        ans = input('\nContinue with these values? (y/n): ')
+        ans = input('\nContinue with these values (y/n):? ')
         if ans.lower() not in YES_ANSWERS:
             raise SystemExit(0)
             
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         elif ans == '4':
             a2db = AOD_2db(par.dir_path, par.ftype)
             if not a2db.to_db(par.point_dec_sep):
-                print('No database has been created')
+                print('No data has been inserted')
                 raise SystemExit(0)
             else:
                 a2db.to_csv()

@@ -61,7 +61,7 @@ class AemetOpenData():
     # Parameters used in Request 
     # After each failed connection attempt, it will sleep for
     #  {backoff_factor} * (2 **(total number of retries - 1)) seconds
-    __MAXREQUEST = 3
+    __MAXREQUEST = 5
     __BACKOFF_FACTOR = 5
     # Number of seconds Requests will wait for your client to establish a 
     #  connection to a remote machine call on the socket. It’s a good practice
@@ -112,47 +112,6 @@ class AemetOpenData():
                 if not name.startswith('_')]
 
 
-    @staticmethod
-    def directory_exists(d_path: str) -> bool:
-        """
-        Determines if a directory exists or not
-
-        Parameters
-        ----------
-        d_path : directory path to check
-
-        Returns
-        -------
-        True if exists
-        """
-        directory_path = pathlib.Path(d_path)
-        if directory_path.exists() and directory_path.is_dir():
-            return True
-        else:
-            return False
-
-
-    @staticmethod
-    def file_exists(d_path: str, f_name: str) -> bool:
-        """
-        Determines if a directory exists or not
-
-        Parameters
-        ----------
-        d_path : directory path as str
-        f_name : file name as str to check
-        Returns
-        -------
-        True if exists
-        """        
-        d_path = pathlib.Path(d_path)
-        file = d_path.joinpath(f_name) 
-        if file.exists() and file.is_file():
-            return True
-        else:
-            return False
-
-
     @staticmethod 
     def file_names_in_dir(d_path: str, pattern: str) -> [str]:
         """
@@ -164,20 +123,17 @@ class AemetOpenData():
         d_path (str). Directory path
         pattern (str): pattern
 
-        Raises
-        ------
-        ValueError. Directory doesn't exists'
-
         Returns
         -------
         list of file names that matches pattern
 
         """
-        if not AemetOpenData.directory_exists(d_path):
+        d_path = pathlib.Path(d_path)
+        if not d_path.exists() or not d_path.is_dir():
             msg = '{d_path} is not a directory'
             logging.append(msg)
-            raise ValueError(msg)
-        d_path = pathlib.Path(d_path)
+            return []
+        
         file_paths = d_path.glob(pattern)
         file_names = [f1.name for f1 in file_paths]
         return file_names
@@ -808,11 +764,11 @@ class AemetOpenData():
 
         d1, d2 = AemetOpenData.__shrink_ts_limits(d1, d2)
             
-        ofile_names = []
-        if not AemetOpenData.directory_exists(dir_path):
-            logging.append(f'Directory {dir_path} not exists')
-            return ofile_names
         dir_path = pathlib.Path(dir_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            msg = '{dir_path} is not a directory'
+            logging.append(msg)
+            return []
 
         dr = AemetOpenData.daily_ranges_get(d1, d2, selected_stations=False)
         
@@ -900,10 +856,11 @@ class AemetOpenData():
         url = 'https://opendata.aemet.es/opendata/api/valores/'+\
             'climatologicos/inventarioestaciones/todasestaciones'
 
-        if not AemetOpenData.directory_exists(dir_path):
-            logging.append(f'Directory {dir_path} not exists')
-            return
         dir_path = pathlib.Path(dir_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            msg = '{dir_path} is not a directory'
+            logging.append(msg)
+            return []
 
         if not AemetOpenData.__check_fecth_value(fetch):
             return
@@ -1066,10 +1023,11 @@ class AemetOpenData():
         if isinstance(stations, str):
             stations = (stations,)
             
-        if not AemetOpenData.directory_exists(dir_path):
-            logging.append(f'Directory {dir_path} must exists')
-            return []
         dir_path = pathlib.Path(dir_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            msg = '{dir_path} is not a directory'
+            logging.append(msg)
+            return []
         
         if not AemetOpenData.__check_time_step_value(time_step):
             return []

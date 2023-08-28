@@ -3,12 +3,15 @@
 Created on Wed Aug 16 11:19:26 2023
 
 @author: solis
+
+version 0.6
 """
 import csv
 import pathlib
 import os
 import re
 import sqlite3
+import traceback
 from typing import Union
 
 import littleLogging as logging
@@ -36,7 +39,7 @@ class AOD_2db():
         the table will contain repeated data. 
     """
 
-    # warning, don't change key names
+    # warning, if you change these constants you must review the code
     __FILE_PATTERNS = \
         {'stations_day': r'^stations(_\d{8}T\d{6}UTC){2}_data\.csv$',
          'station1_day': r'^(?!stations)(.{1,})(_\d{8}T\d{6}UTC){2}_data\.csv$',
@@ -52,10 +55,15 @@ class AOD_2db():
          'station1_day': 'metd',
          'station1_month': 'metm',
          }
+    __DBTABLE_METADATA = \
+        {'stations_day': 'metd_metadata',
+         'station1_day': 'metd_metadata',
+         'station1_month': 'metm_metadata',
+         }        
     __MAX_ERRORS_2STOP_INSERTING = 3
 
     
-    def __init__(self, d_path: str, file_type: str):
+    def __init__(self, d_path: str, file_type: str, verbose: bool=True):
         """
         Parameters
         ----------
@@ -77,9 +85,9 @@ class AOD_2db():
         
         self.dir_path: pathlib.Path = dir_path
         self.file_type: str = file_type
+        self.verbose: bool = verbose
         
         self.__dbpath: pathlib.Path = None
-        self.table_name: str = None
 
 
     @property
@@ -97,6 +105,12 @@ class AOD_2db():
         self.__dbpath = dbpath
 
 
+    def get_default_dbpath(self) -> pathlib.Path:
+        dbname = self.__DBNAME[self.file_type]
+        dbpath = self.dir_path.joinpath(dbname)
+        return dbpath 
+
+
     def is_daily_file_type(self):
         if 'day' in self.file_type:
             return True
@@ -106,12 +120,6 @@ class AOD_2db():
             msg = f'File_type ({self.file_type})does not follow the '+\
                 'required name pattern' 
             raise ValueError(msg)
-
-
-    def get_default_dbpath(self) -> pathlib.Path:
-        dbname = self.__DBNAME[self.file_type]
-        dbpath = self.dir_path.joinpath(dbname)
-        return dbpath 
 
             
     def to_db(self, point_dec_sep: bool=False) :
@@ -127,20 +135,28 @@ class AOD_2db():
         -------
         True if the task ends OK
         """
+
+        files_of_type = {'data': True, 'metadata': True}
+        insert_data = {'data': True, 'metadata': True}
         
-        f_paths = self.__get_file_paths()
-        if not f_paths:
-            logging.append('No files downloaded from' +\
-                           f' Aemet OpenData in {self.dbpath}')
-            return False
+        for key in files_of_type:
         
-        headers = AOD_2db.__get_unique_ordered_headers(f_paths)
+            f_paths = self.__get_file_paths(key)
+            if not f_paths:
+                msg = f'No {key} files in '+\
+                    f'{self.dir_path} of type {self.file_type}'
+                logging.append(msg)
+                files_of_type[key] = False
+                continue
+    
+            headers = AOD_2db.__get_headers(f_paths)
+            
+            if not self.__create_table(headers, key):
+                insert_data[key] = False
+                continue
         
-        if not self.__create_table(headers):
-            return False
-        
-        if not self.__insert_data(f_paths, point_dec_sep):
-            return False
+            if not self.__insert_unique(f_paths, key):
+                return False
         
         if point_dec_sep and self.is_daily_file_type():
             if not self.update_decimal_separator('.'):
@@ -149,7 +165,7 @@ class AOD_2db():
         return True
 
 
-    def columns_from_metadata(self) -> {}:
+    def read_metadata_files(self) -> {}:
         """
         Reads the metadata files and returns the characteristics of the columns
             as a dictionary having the header id as the key 
@@ -189,6 +205,70 @@ class AOD_2db():
         return columns
 
 
+    def update_decimal_separator(self, sep: str) -> bool:
+        """
+        As of the columns in the table of the database are str, I can replace
+            the decimal separator using sql update
+        The columns to be updated are selected from metadata of the downloaded
+            csv files
+
+        Parameters
+        ----------
+        sep (str). A character in ('.', ',') 
+
+        Returns
+        -------
+        bool. True if operation ends ok
+
+        """
+        
+        if sep not in ('.', ','):
+            logging.append('Only "." or "," are allowd')
+            return False
+        if sep == '.':
+            sep0 = ','
+        else:
+            sep0 = '.'
+        
+        stm_template = "update {} set {};"
+        col_replace_template = "{} = replace({}, '{}', '{}')"
+
+        dbpath = self.get_default_dbpath()
+        if not dbpath.exists() or not dbpath.is_file():
+            logging.append(f"No {dbpath} exists")       
+            return False
+        
+        table_name = AOD_2db.__DBTABLE[self.file_type]
+        
+        columns = self.read_metadata_files()
+        selected_cols = [k for k, v in columns.items() if v[1] == 'float']
+        if not selected_cols:
+            logging.append('Not columns of type float in metadata')
+            return False
+        cols_set = [col_replace_template.format(sc1, sc1, sep0, sep) \
+                    for sc1 in selected_cols]
+        cols_ready = ', '.join(cols_set)
+        stm = stm_template.format(table_name, cols_ready)
+        
+        try:
+            conn = sqlite3.connect(dbpath)
+            cur = conn.cursor()            
+            cur.execute(stm)
+            conn.commit()
+            conn.close()
+            a = ', '.join(selected_cols)
+            print(f'Updated decimal separator as "{sep}" in columns: {a}')
+            return True
+        except Exception as err:
+            msg = f'Error updating the table {table_name}\n{err}'
+            logging.append(msg)
+            try:
+                conn.close()
+            except:
+                pass
+            return False
+        
+
     def to_csv(self) -> bool:
         """
         Export the unique table db to a csv file
@@ -212,7 +292,7 @@ class AOD_2db():
             if ans.lower() != 'y':
                 return False            
         
-        table_name = AOD_2db.__get_table_name(dbpath)
+        table_name = AOD_2db.__DBTABLE[self.file_type]
         select = select_template.format(table_name) 
         column_names = self.__get_columns_names(dbpath, table_name)
         if not column_names:
@@ -261,7 +341,6 @@ class AOD_2db():
         except Exception as err:
             msg = f'Error {err}' 
             logging.append(msg)
-            return []
         finally:
             try:
                 conn.close()
@@ -313,27 +392,53 @@ class AOD_2db():
             raise ValueError(msg)
 
 
-    def __get_file_paths(self) -> [] :
-        f_paths = self.dir_path.glob('*_data.csv')
+    def __get_file_paths(self, key:str = 'data') -> [] :
+        """
+        Returns a list with the file paths of downloaded files of type
+            data or metadata
+
+        Parameters
+        ----------
+        key, optional. If 'data' return data files, if 'atadata' metadata
+            files. The default is 'data'.
+
+        Returns
+        -------
+        list of file paths
+
+        """
+        if key not in ('data', 'metadata'):
+            logging.append(f'Unexpected value for key: {key}')
+            return []
+        
+        file_pattern = AOD_2db.__FILE_PATTERNS[self.file_type]
+        if key == 'data':
+            f_paths = self.dir_path.glob('*_data.csv')
+        else:
+            f_paths = self.dir_path.glob('*_metadata.csv')
+            file_pattern = file_pattern.replace('_data', '_metadata')
+            
         filtered_names = \
             [fp1 for fp1 in f_paths if \
-             re.match(AOD_2db.__FILE_PATTERNS[self.file_type], fp1.name)]
+             re.match(file_pattern, fp1.name)]
         return filtered_names
 
 
     @staticmethod
-    def __get_unique_ordered_headers(file_paths: [str]) -> [str]:
+    def __get_headers(file_paths: [str], sort:bool = True) -> [str]:
         """
-        Lets a list with CSV file paths, the function returns the headers in
-            the files without repetitions and ordered by name
+        Let file_paths a list with CSV file paths, the function returns the
+            headers in the files without repetitions and optionally 
+            ordered by name
 
         Parameters
         ----------
         csv_file_paths : List with CSV file paths
+        sort: If True headers will sorted. 
 
         Returns
         -------
-        sorted_headers
+        headers
 
         """
         all_headers = set()
@@ -345,9 +450,10 @@ class AOD_2db():
                 if headers:
                     all_headers.update(headers)
     
-        sorted_headers = sorted(all_headers)
-        
-        return sorted_headers
+        if sort:
+            return sorted(all_headers)
+        else:
+            return all_headers
 
 
     @staticmethod
@@ -376,20 +482,31 @@ class AOD_2db():
             return file_path
 
 
-    def __create_table(self, headers: [str]) -> bool:
+    def __create_table(self, headers: [str], 
+                       table: str='data') -> bool:
+        """
+        Create a table for data or metadata
 
-        result = True
+        Parameters
+        ----------
+        headers (str). Column names
+        table : str, optional. The default is 'data'.
+
+        Returns
+        -------
+        bool 
+
+        """
         
         drop_table_template = "drop table if exists {}"
         create_table_template = "create table if not exists '{}' ( {} );"
         column_template = "{} text"
 
-        dbname = self.__DBNAME[self.file_type]
-        dbpath = self.__get_file_path(dbname)
-        if dbpath is None:
-            msg = f'The file {dbname} has not been created'
-            return False
-        table_name = AOD_2db.__DBTABLE[self.file_type]
+        dbpath = self.get_default_dbpath()
+        if table == 'data':
+            table_name = AOD_2db.__DBTABLE[self.file_type]
+        else:
+            table_name = AOD_2db.__DBTABLE_METADATA[self.file_type]
 
         columns = [column_template.format(h1) for h1 in headers]
         columns = ', '.join(columns)
@@ -402,21 +519,19 @@ class AOD_2db():
             cur = conn.cursor()
             cur.execute(stm0)
             cur.execute(stm)
-            self.dbpath = dbpath
-            self.table_name = table_name
+            conn.close()
+            return True
         except Exception as err:
-            result = False
-            msg = f'Error creating table {dbpath.name}\n{err}'
+            msg = f'Error creating table {table_name}\n{err}'
             logging.append(msg)
             try:
                 conn.close()
             except:
                 pass
-        finally:
-            return result
+            return False
 
 
-    def __insert_data(self, f_paths: [pathlib.Path], verbose: bool = True):
+    def __insert_data(self, f_paths: [pathlib.Path]):
         
         stm_template = "insert into {} ({}) values ({})"
 
@@ -425,7 +540,7 @@ class AOD_2db():
         
         ier = 0
         for i, fp1 in enumerate(f_paths):
-            if verbose:
+            if self.verbose:
                 print(i, fp1.name)
             rows = []
             headers = AOD_2db.__get_unique_ordered_headers([fp1])
@@ -436,7 +551,8 @@ class AOD_2db():
                     if ir == 0:
                         qs = ['?' for e1 in row]
                         qs = ', '.join(qs)
-                        stm = stm_template.format(self.table_name, columns, qs)
+                        table_name = AOD_2db.__DBTABLE[self.file_type]
+                        stm = stm_template.format(table_name, columns, qs)
                         ncols = len(row)
                     else:
                         r1 = [str(e1) for e1 in row]
@@ -457,7 +573,10 @@ class AOD_2db():
                 cur.executemany(stm, rows)
                 conn.commit()
             except Exception as e:
-                conn.close()
+                try:
+                    conn.close()
+                except:
+                    pass
                 msg = f'File {fp1.name}\nError {e}'
                 logging.append(msg)
                 return False
@@ -467,66 +586,87 @@ class AOD_2db():
         return True
 
 
-    def update_decimal_separator(self, sep: str) -> bool:
-        """
-        As of the columns in the table of the database are str, I can replace
-            the decimal separator using sql update
-        The columns to be updated are selected from metadata of the downloaded
-            csv files
-
-        Parameters
-        ----------
-        sep (str). A character in ('.', ',') 
-
-        Returns
-        -------
-        bool. True if operation ends ok
-
-        """
+    def __insert_unique(self, f_paths: [pathlib.Path], key:str) -> bool:
         
-        if sep not in ('.', ','):
-            logging.append('Only "." or "," are allowd')
+        if key not in ('data', 'metadata'):
+            logging.append(f'key has not a valid value: {key}')
             return False
-        if sep == '.':
-            sep0 = ','
-        else:
-            sep0 = '.'
+ 
+        TEMP_TABLE = 'tempt0'
+        copy_table_template = "create temp table if not exists " +\
+            "{} as select * from {} where 0;"
+        insert_template = "insert into {} ({}) values ({})" 
+        insert_from_select_template = "insert into {} ({}) {}"
+        select_template = "select distinct {} from {}"
         
-        stm_template = "update {} set {};"
-        col_replace_template = "{} = replace({}, '{}', '{}')"
-
         dbpath = self.get_default_dbpath()
-        if not dbpath.exists() or not dbpath.is_file():
-            logging.append(f"No {dbpath} exists")       
-            return False
-        
-        table_name = AOD_2db.__DBTABLE[self.file_type]
-        
-        columns = self.columns_from_metadata()
-        selected_cols = [k for k, v in columns.items() if v[1] == 'float']
-        if not selected_cols:
-            logging.append('Not columns of type float in metadata')
-            return False
-        cols_set = [col_replace_template.format(sc1, sc1, sep0, sep) \
-                    for sc1 in selected_cols]
-        cols_ready = ', '.join(cols_set)
-        stm = stm_template.format(table_name, cols_ready)
-        
+        if key == 'data':
+            table_name = AOD_2db.__DBTABLE[self.file_type]
+        else:
+            table_name = AOD_2db.__DBTABLE_METADATA[self.file_type]
+
         try:
             conn = sqlite3.connect(dbpath)
-            cur = conn.cursor()            
-            cur.execute(stm)
+            cur = conn.cursor()
+            tables = \
+                cur.execute("select name from sqlite_master" 
+                            " where type='table';").fetchall()
+            if not tables:
+                logging.append(f'No tables in {dbpath.name}')
+                return False
+            table_names = [table[0] for table in tables]
+            if table_name not in table_names:
+                logging.append(f'Table {table_name} does not exists')
+                return False
+            cur.execute(copy_table_template.format(TEMP_TABLE, table_name))
+            cur.execute(f"delete from {table_name}")
+            conn.commit()            
+
+            for i, fp1 in enumerate(f_paths):
+                if self.verbose:
+                    print(i, fp1.name)
+                headers = []
+                data = []                
+                with open(fp1, 'r', encoding='utf-8') as csv_file:
+                    csv_reader = csv.reader(csv_file)
+                    
+                    # Extract headers from the first row
+                    headers = next(csv_reader)
+                    column_names = ', '.join(headers)
+                    qs = ['?' for c1 in headers]
+                    qs = ', '.join(qs)
+                    insert_stm = insert_template.format(TEMP_TABLE, 
+                                                        column_names, qs)
+
+                    for row in csv_reader:
+                        data.append(row)      
+
+                cur.executemany(insert_stm, data)
+                conn.commit()
+
+            query = f"PRAGMA table_info({table_name})"
+            cur.execute(query)
+            column_names = [c1[0] for c1 in cur.fetchall()]
+            column_names = ', '.join(column_names)
+            
+            select = select_template.format(column_names, TEMP_TABLE)
+            insert = insert_from_select_template.format(table_name, column_names,
+                                                        select)
+
+            cur.execute(insert)
             conn.commit()
-            conn.close()
-            a = ', '.join(selected_cols)
-            print(f'Updated decimal separator as "{sep}" in columns: {a}')
-            return True
         except Exception as err:
-            msg = f'Error updating the table {table_name}\n{err}'
-            logging.append(msg)
             try:
                 conn.close()
             except:
                 pass
+            traceback_entry = \
+                traceback.extract_tb(err.__traceback__)[-1]
+            filename, lineno, name, line = traceback_entry            
+            msg = f'\n{filename}\nLine {lineno} in {name}: {line}\n{err}'
+            logging.append(msg)
             return False
-        
+                
+        msg = f'\n{key} has been inserted into {table_name}'
+        logging.append(msg)
+        return True
