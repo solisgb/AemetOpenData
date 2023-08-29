@@ -19,24 +19,29 @@ import littleLogging as logging
 
 class AOD_2db():
     """
-    Insert the meteorological data from Aemet OpenData that has been downloaded
-        as csv files into a sqlite3 database with a unique table. 
-    For each type of file, a database with a single table is created. 
-        Therefore, each table contains a meteorological time series. 
+    Incorporate the meteorological data from Aemet OpenData, which has been
+        saved as CSV files, into an sqlite3 database. This database will
+        comprise one or two tables: the first table will hold the actual data,
+        while the second one will hold the metadata linked with the data. 
     The name of the database is determined by the type of data to be inserted
         and for each type the name is always the same.
     Table structure:
         1) Table does not have a primary key.
-        2) Columns names. They Are the the headers of the downloaded csv files
-        3) Columns types. Is always TEXT (str). 
+        2) Columns names. They are the headers of the downloaded csv files
+        3) Columns types. Are always TEXT (str). 
     Table contents:
-        1) The inserted data is the same as the downloaded data, no formatting
-        transformation is performed.
+        1) Format
+        * In monthly data requests, Aemet treats all the data as strings, and
+        for those that are of type float, a period is used as the decimal
+        separator.
+        * In daily data requests, Aemet distinguishes between data of type 
+        string and other data of type float. In this case, Aemet uses the comma
+        as the decimal separator: in the database, this decimal separator is
+        changed to a period.
         2) If multiple download sessions of the same data type are performed
         with overlapping date ranges and ther are saved in the same directory,
-        the data files contain repeated data.
-        This repeated data will be inserted as-is into the table and therefore
-        the table will contain repeated data. 
+        the csv data files contain repeated data. The app inserts only unique
+        rows.
     """
 
     # warning, if you change these constants you must review the code
@@ -122,14 +127,9 @@ class AOD_2db():
             raise ValueError(msg)
 
             
-    def to_db(self, point_dec_sep: bool=False) :
+    def to_db(self) :
         """
         Inserts the data in a database of type sqlite3
-        
-        Parameters
-        ----------
-        point_dec_sep (bool). If True point will be the decimal separator,
-            otherwise comma
 
         Returns
         -------
@@ -158,9 +158,9 @@ class AOD_2db():
             if not self.__insert_unique(f_paths, key):
                 return False
         
-        if point_dec_sep and self.is_daily_file_type():
-            if not self.update_decimal_separator('.'):
-                return False
+            if key == 'data' and self.is_daily_file_type():
+                if not self.update_decimal_separator('.'):
+                    continue
         
         return True
 
@@ -531,62 +531,21 @@ class AOD_2db():
             return False
 
 
-    def __insert_data(self, f_paths: [pathlib.Path]):
-        
-        stm_template = "insert into {} ({}) values ({})"
-
-        conn = sqlite3.connect(self.dbpath)
-        cur = conn.cursor()
-        
-        ier = 0
-        for i, fp1 in enumerate(f_paths):
-            if self.verbose:
-                print(i, fp1.name)
-            rows = []
-            headers = AOD_2db.__get_unique_ordered_headers([fp1])
-            columns = ', '.join(headers)
-            with open(fp1, 'r', encoding='utf-8') as csv_file:
-                csv_reader = csv.reader(csv_file, delimiter=',')
-                for ir, row in enumerate(csv_reader):
-                    if ir == 0:
-                        qs = ['?' for e1 in row]
-                        qs = ', '.join(qs)
-                        table_name = AOD_2db.__DBTABLE[self.file_type]
-                        stm = stm_template.format(table_name, columns, qs)
-                        ncols = len(row)
-                    else:
-                        r1 = [str(e1) for e1 in row]
-                        if ncols != len(row):
-                            msg = f'file {fp1.name},\n line {ir+1:d} has' +\
-                                f' {len(row)} columns but are expected '+\
-                                    f'{ncols:d}' 
-                            logging.append(msg)
-                            ier += 1 
-                            if ier == self.__MAX_ERRORS_2STOP_INSERTING:
-                                msg = 'Máx number of error reading csv'
-                                logging.append(msg)
-                                raise ValueError(msg)
-                        else:
-                            rows.append(tuple(r1))
-
-            try:
-                cur.executemany(stm, rows)
-                conn.commit()
-            except Exception as e:
-                try:
-                    conn.close()
-                except:
-                    pass
-                msg = f'File {fp1.name}\nError {e}'
-                logging.append(msg)
-                return False
-        msg = '\nPrevious downloaded files has been imported to' +\
-            f' the sqlite db\n{self.dbpath}'
-        logging.append(msg)
-        return True
-
-
     def __insert_unique(self, f_paths: [pathlib.Path], key:str) -> bool:
+        """
+        Insert data in f_paths in a Sqlite database. Only unique rows are
+            inserted
+
+        Parameters
+        ----------
+        f_paths : paths of csv files previously downloaded from Aemet 
+        key : 'data' or 'metadata'
+
+        Returns
+        -------
+        bool. True if the process ends correctly
+
+        """
         
         if key not in ('data', 'metadata'):
             logging.append(f'key has not a valid value: {key}')
@@ -646,7 +605,8 @@ class AOD_2db():
 
             query = f"PRAGMA table_info({table_name})"
             cur.execute(query)
-            column_names = [c1[0] for c1 in cur.fetchall()]
+            table_info = cur.fetchall()
+            column_names = [c1[1] for c1 in table_info]
             column_names = ', '.join(column_names)
             
             select = select_template.format(column_names, TEMP_TABLE)

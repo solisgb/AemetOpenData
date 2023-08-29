@@ -62,10 +62,9 @@ if __name__ == "__main__":
         elif ans == '2':
             file_names =\
                 aod.meteo_data_all_stations(par.d1, par.d2, par.dir_path, 
-                                            data_request = par.fetch, 
+                                            fetch = par.fetch, 
                                             verbose = par.verbose, 
                                             use_files = par.use_files)
-
             print('Downloaded files', len(file_names))                
         elif ans == '3':
             file_names =\
@@ -76,7 +75,7 @@ if __name__ == "__main__":
             print('Downloaded files', len(file_names))
         elif ans == '4':
             a2db = AOD_2db(par.dir_path, par.ftype)
-            if not a2db.to_db(par.point_dec_sep):
+            if not a2db.to_db():
                 print('No data has been inserted')
                 raise SystemExit(0)
             else:

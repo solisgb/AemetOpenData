@@ -48,7 +48,7 @@ stations = ['7178I', '7031', '7031X']  # list with station identifiers
 #    'station1_month'. Monthly meteorological data from selected stations
 
 ftype = 'stations_day'
-point_dec_sep = True  # decimal separator for float data: point or comma
+
 
 
 

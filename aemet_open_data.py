@@ -501,13 +501,15 @@ class AemetOpenData():
         Save to a csv file the response to a request to the Aemet server 
             previously converted to json format. The response can be a list
             of dictionaries or a dictionary. In case metadata has been
-            requested, the meaning of the data columns are in the key 'campos'
-            ; in this case it is the only content that is saved.
+            requested, the meaning of the data columns are provided 
+            in the key 'campos'; data['campos'] is a list of dictionaries;
+            in this case data['campos'] is the only content that is saved.
 
         Parameters
         ----------
         csv_file_path : csv file path where data will be saved
-        data : json response
+        data : json response as a list od dictionaries. Not all the 
+            dictionaries have the same keys
         Raises
         ------
         ValueError
@@ -516,7 +518,16 @@ class AemetOpenData():
         None
 
         """
-        
+        def dict_template_get(list_of_dicts):
+            default_value = ''
+            unique_keys = set()
+            for dict1 in list_of_dicts:
+                unique_keys.update(dict1.keys())
+            unique_keys_list = sorted(list(unique_keys))
+            dict_template = {key: default_value for key in unique_keys_list}
+            return dict_template 
+
+
         if not isinstance(data, (list, dict)):
             msg = 'data must have type list or dict'
             raise ValueError(msg)
@@ -537,10 +548,13 @@ class AemetOpenData():
                 csvwriter.writerows(new_data)
             else:
                 if 'campos' in data:
-                    header = data['campos'][0].keys()
+                    dict_template = dict_template_get(data['campos'])
+                    new_data = [row for row in \
+                        self.ldicts_2_ltuples_eq_len(dict_template, 
+                                                     data['campos'])]
+                    header = dict_template.keys()
                     csvwriter.writerow(header)
-                    for item in data['campos']:
-                        csvwriter.writerow(item.values())
+                    csvwriter.writerows(new_data)
                 else:
                     header = data.keys()
                     csvwriter.writerow(header)
