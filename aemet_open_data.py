@@ -847,7 +847,7 @@ class AemetOpenData():
 
 
     def meteo_stations(self, dir_path: str, fetch: str='both',
-             use_files: bool=True, verbose: bool=False) -> None:
+             use_files: bool=True, verbose: bool=True) -> None:
         """
         Retrieves characteristics of meteorological stations in Aemet
             OpenData and saves them to a file

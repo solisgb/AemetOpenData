@@ -92,22 +92,22 @@ class AOD_2db():
         self.file_type: str = file_type
         self.verbose: bool = verbose
         
-        self.__dbpath: pathlib.Path = None
+    #     self.__dbpath: pathlib.Path = None
 
 
-    @property
-    def dbpath(self):
-        return self.__dbpath
+    # @property
+    # def dbpath(self):
+    #     return self.__dbpath
 
 
-    @dbpath.setter
-    def dbpath(self, dbpath: str):
-        dbpath = AOD_2db.__get_absolute_path(dbpath)
-        if not dbpath.exists() or not dbpath.is_file():
-            msg = f"No {dbpath} exists"
-            logging.append(msg)
-            raise ValueError(msg)
-        self.__dbpath = dbpath
+    # @dbpath.setter
+    # def dbpath(self, dbpath: str):
+    #     dbpath = AOD_2db.__get_absolute_path(dbpath)
+    #     if not dbpath.exists() or not dbpath.is_file():
+    #         msg = f"No {dbpath} exists"
+    #         logging.append(msg)
+    #         raise ValueError(msg)
+    #     self.__dbpath = dbpath
 
 
     def get_default_dbpath(self) -> pathlib.Path:
