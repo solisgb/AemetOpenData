@@ -1,6 +1,6 @@
-# AemetOpenData
+# Module aemet_open_data
 
-It downloads daily and monthly meteorological data from Aemet OpenData (https://www.aemet.es/es/datos_abiertos/AEMET_OpenData).
+Using this module you can download daily and monthly meteorological data from Aemet OpenData (https://www.aemet.es/es/datos_abiertos/AEMET_OpenData).
 
 Requirements
 * Python 3.11 >= (previous versions have not been tested)
